@@ -1,9 +1,9 @@
 ---
 name: experiment-planning
-description: "Reference for designing autoresearch experiments — sweep harnesses, ground truth strategies, metric selection, and feasibility checks. Use when creating or reviewing experiment plans."
+description: "Reference for designing nerd experiments — sweep harnesses, ground truth strategies, metric selection, and feasibility checks. Use when creating or reviewing experiment plans."
 ---
 
-# Experiment Planning for Autoresearch
+# Experiment Planning for Nerd
 
 ## Every Plan Needs
 1. **Hypothesis** — why the parameter might be suboptimal

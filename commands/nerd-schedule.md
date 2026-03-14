@@ -1,6 +1,6 @@
 ---
 name: nerd-schedule
-description: "Schedule autoresearch experiments to run at specific times (e.g., overnight). Uses macOS LaunchAgent for scheduling."
+description: "Schedule nerd experiments to run at specific times (e.g., overnight). Uses macOS LaunchAgent for scheduling."
 argument-hint: "[tonight|weeknights|HH:MM-HH:MM|cancel]"
 allowed-tools: "Read,Write,Bash,AskUserQuestion"
 ---
@@ -39,7 +39,7 @@ capacity = experiments_per_hour * window_hours
 
 ## Register in Global Queue
 
-Multiple projects on this machine may schedule autoresearch. The global queue coordinates:
+Multiple projects on this machine may schedule nerd. The global queue coordinates:
 
 ```bash
 QUEUE="$HOME/.claude/plugins/nerd/global-queue.yaml"

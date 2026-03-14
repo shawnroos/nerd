@@ -3,7 +3,7 @@ name: codebase-analysis
 description: "Reference for identifying tunable parameters in codebases. Use when scanning for research targets — hardcoded thresholds, magic numbers, heuristic weights, prompt templates, pipeline budgets."
 ---
 
-# Codebase Analysis for Autoresearch
+# Codebase Analysis for Nerd
 
 ## Parameter Categories (by impact)
 

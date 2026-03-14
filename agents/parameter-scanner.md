@@ -3,12 +3,12 @@ name: parameter-scanner
 model: sonnet
 color: cyan
 tools: ["Read", "Glob", "Grep", "Bash"]
-description: "Scans codebases for tunable parameters, hardcoded thresholds, magic numbers, and empirical optimization opportunities. Use when autoresearch needs to discover what experiments to run."
+description: "Scans codebases for tunable parameters, hardcoded thresholds, magic numbers, and empirical optimization opportunities. Use when nerd needs to discover what experiments to run."
 whenToUse: |
   Use this agent to analyze a codebase for tunable parameters and optimization opportunities.
   <example>
-  Context: Starting an autoresearch session on a new codebase
-  user: "Run autoresearch on this project"
+  Context: Starting a nerd session on a new codebase
+  user: "Let the nerd loose on this project"
   assistant: "I'll use the parameter-scanner agent to analyze the codebase for research opportunities."
   </example>
 ---

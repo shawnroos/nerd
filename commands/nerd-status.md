@@ -1,12 +1,12 @@
 ---
 name: nerd-status
-description: "Check the status of the autoresearch queue, running experiments, and backlog. Shows progress, completed findings, and pending proposals."
+description: "Check the status of the nerd queue, running experiments, and backlog. Shows progress, completed findings, and pending proposals."
 allowed-tools: "Read,Bash,Glob"
 ---
 
 # Nerd Status
 
-Display the current state of the autoresearch pipeline.
+Display the current state of the nerd pipeline.
 
 ## Read Backlog
 

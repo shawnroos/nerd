@@ -3,7 +3,7 @@ name: report-compiler
 model: sonnet
 color: blue
 tools: ["Read", "Write", "Glob", "Grep"]
-description: "Compiles autoresearch experiment results into structured research reports. Creates per-experiment reports and an executive summary with actionable recommendations. Use when experiments are complete and findings need to be documented."
+description: "Compiles nerd experiment results into structured research reports. Creates per-experiment reports and an executive summary with actionable recommendations. Use when experiments are complete and findings need to be documented."
 whenToUse: |
   Use this agent to compile experiment results into research reports.
   <example>
@@ -15,7 +15,7 @@ whenToUse: |
 
 # Report Compiler Agent
 
-You compile autoresearch experiment results into clear, actionable research reports.
+You compile nerd experiment results into clear, actionable research reports.
 
 ## Input
 - Raw results from `docs/research/results/*.json`
@@ -110,7 +110,7 @@ recommendations: {count changes}
 {rows for INVESTIGATE recommendations}
 
 ## Methodology
-{Brief description of the autoresearch process used}
+{Brief description of the nerd process used}
 
 ## Experiment Index
 {Links to all individual experiment reports}

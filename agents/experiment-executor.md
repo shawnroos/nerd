@@ -3,7 +3,7 @@ name: experiment-executor
 model: sonnet
 color: green
 tools: ["Read", "Write", "Edit", "Bash", "Glob", "Grep"]
-description: "Executes autoresearch experiment plans in isolated worktrees. Builds evaluation harnesses, runs parameter sweeps, captures results. Use when an experiment plan is ready and needs to be implemented and run."
+description: "Executes nerd experiment plans in isolated worktrees. Builds evaluation harnesses, runs parameter sweeps, captures results. Use when an experiment plan is ready and needs to be implemented and run."
 whenToUse: |
   Use this agent to implement and execute an experiment in a worktree.
   <example>
@@ -38,7 +38,7 @@ Determine the project's language and conventions:
 
 **CRITICAL: Do NOT create a standalone eval.rs or eval.ts file. Extend the existing eval module.**
 
-The autoresearch pipeline creates a shared eval module BEFORE launching experiment agents. Your job is to ADD your experiment to it.
+The nerd pipeline creates a shared eval module BEFORE launching experiment agents. Your job is to ADD your experiment to it.
 
 **For Rust projects:**
 - Create `src/eval/{experiment_id}.rs` with your experiment's types and functions

@@ -1,14 +1,14 @@
 ---
 name: nerd-setup
-description: "First-time setup for the autoresearch plugin. Detects hardware, installs the appropriate autoresearch variant (MLX for Apple Silicon, original for NVIDIA), runs calibration benchmarks, and saves a hardware profile. Also initializes the docs/research/ structure in the current project."
+description: "First-time setup for the nerd plugin. Detects hardware, installs the appropriate training variant (MLX for Apple Silicon, original for NVIDIA), runs calibration benchmarks, and saves a hardware profile. Also initializes the docs/research/ structure in the current project."
 allowed-tools: "Read,Write,Edit,Bash,Glob,Grep,AskUserQuestion,Agent"
 ---
 
 # Nerd Setup
 
-Run first-time setup for the autoresearch plugin. This command:
+Run first-time setup for the nerd plugin. This command:
 1. Detects hardware capabilities
-2. Installs the appropriate autoresearch training variant
+2. Installs the appropriate training variant
 3. Runs calibration benchmarks
 4. Saves a hardware profile
 5. Initializes the project research structure
@@ -152,7 +152,7 @@ fi
 
 ## Step 4: Save Hardware Profile
 
-Write the calibration results to the global autoresearch config:
+Write the calibration results to the global nerd config:
 
 ```bash
 mkdir -p ~/.claude/plugins/nerd
@@ -287,7 +287,7 @@ The hardware profile is read by the experiment-executor agent to:
 - Select eval batch sizes that won't OOM
 - Decide whether to attempt GPU-intensive experiments
 
-The profile is also used by the main `/autoresearch` command to:
+The profile is also used by the main `/nerd` command to:
 - Estimate total pipeline time before starting
 - Warn if an experiment might exceed available memory
-- Select the right autoresearch variant for training experiments
+- Select the right training variant for training experiments

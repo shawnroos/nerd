@@ -1,9 +1,9 @@
 ---
 name: research-reporting
-description: "Reference for compiling autoresearch findings into structured reports. Use when writing experiment reports, creating executive summaries, or documenting parameter tuning results."
+description: "Reference for compiling nerd findings into structured reports. Use when writing experiment reports, creating executive summaries, or documenting parameter tuning results."
 ---
 
-# Research Reporting for Autoresearch
+# Research Reporting for Nerd
 
 ## Report Frontmatter
 ```yaml
