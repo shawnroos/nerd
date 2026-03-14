@@ -1,0 +1,9 @@
+{
+  "name": "autoresearch",
+  "version": "0.1.0",
+  "description": "Autonomous codebase research plugin. Analyzes codebases for tunable parameters, generates experiment plans, executes them in isolated worktrees, and compiles findings into structured research reports.",
+  "author": {
+    "name": "Shawn Roos"
+  },
+  "keywords": ["research", "experiments", "optimization", "parameter-tuning", "autoresearch"]
+}

@@ -1,0 +1,13 @@
+{
+  "SessionStart": [
+    {
+      "matcher": "",
+      "hooks": [
+        {
+          "type": "prompt",
+          "prompt": "Check .claude/autoresearch.local.md for the research backlog. If it has 'proposed' entries, mention: 'Autoresearch: {N} proposals in backlog. Run /autoresearch to start.' Also check for stale 'running' entries — if any experiment has status 'running' but no corresponding worktree exists (check with 'git worktree list | grep research-'), warn: 'Autoresearch: {N} experiments marked running but worktrees missing (possible crashed session). Run /autoresearch to recover.' If no backlog file exists, say nothing."
+        }
+      ]
+    }
+  ]
+}

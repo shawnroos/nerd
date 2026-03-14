@@ -1,0 +1,58 @@
+---
+name: autoresearch-status
+description: "Check the status of the autoresearch queue, running experiments, and backlog. Shows progress, completed findings, and pending proposals."
+allowed-tools: "Read,Bash,Glob"
+---
+
+# Autoresearch Status
+
+Display the current state of the autoresearch pipeline.
+
+## Read Backlog
+
+```bash
+cat .claude/autoresearch.local.md 2>/dev/null
+```
+
+Parse the YAML frontmatter for backlog entries.
+
+## Check Worktrees
+
+```bash
+git worktree list 2>/dev/null | grep "research-"
+```
+
+## Check Results
+
+```bash
+ls docs/research/results/*.json 2>/dev/null | wc -l
+ls docs/research/*-report.md 2>/dev/null | wc -l
+```
+
+## Display Status
+
+Format output as:
+
+```
+Autoresearch Status
+═══════════════════
+
+Backlog:
+  Proposed: {count}
+  Planned:  {count}
+  Running:  {count}
+  Complete: {count}
+  Failed:   {count}
+
+Active Worktrees:
+  worktrees/research-E001 → feat/research-E001 (running)
+  worktrees/research-E002 → feat/research-E002 (running)
+
+Recent Findings:
+  E001: JW threshold optimal at 0.85 [KEEP]
+  E002: RRF k=40 beats k=60 by 3% [CHANGE]
+
+Reports: docs/research/
+```
+
+If backlog is empty: "No research backlog. Run /autoresearch to analyze the codebase."
