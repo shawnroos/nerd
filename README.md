@@ -1,8 +1,8 @@
-# autoresearch
+# Autoresearch
 
 Autonomous codebase research plugin for Claude Code. Discovers tunable parameters in your code, plans experiments to find optimal values, runs them overnight in parallel git worktrees, and delivers findings with actionable recommendations.
 
-Built from a real session where 15 experiments were designed, implemented, and run across two codebases (Arras and OpenPencil) in a single sitting. This plugin packages that workflow so you can repeat it on any project.
+This plugin was born from running Karpathy's [autoresearch](https://github.com/karpathy/autoresearch) concept — autonomous ML experiment loops. The same approach can be applied to any codebase with tunable parameters.   
 
 ## Quick Start
 
@@ -28,7 +28,7 @@ Built from a real session where 15 experiments were designed, implemented, and r
 
 ## What It Does
 
-**The problem:** Codebases accumulate hardcoded thresholds, magic numbers, and heuristic weights that were chosen by intuition, not measurement. A fuzzy match threshold of 0.85, an RRF k of 60, a token budget of 10,000 — are these optimal? Nobody knows, because nobody has tested.
+**The problem:** Codebases accumulate hardcoded thresholds, magic numbers, and heuristic weights that are chosen by intuition or best available knowledge. A fuzzy match threshold of 0.85, an RRF k of 60, a 15k token budget – those decisions can become bottlenecks, long after you've forgotten they even exist.  
 
 **The solution:** Autoresearch applies the scientific method to your codebase parameters:
 
@@ -182,8 +182,7 @@ backlog:
 - macOS (for LaunchAgent scheduling; codebase experiments work on any platform)
 
 ## Origin
-
-This plugin was born from running Karpathy's [autoresearch](https://github.com/karpathy/autoresearch) concept — autonomous ML experiment loops — and realizing the same pattern applies to any codebase with tunable parameters. The first run produced 15 experiments across search relevance, entity resolution, temporal decay, prompt compression, sync pipeline efficiency, and agent orchestration. Key findings:
+The first run produced 15 experiments across search relevance, entity resolution, temporal decay, prompt compression, sync pipeline efficiency, and agent orchestration. Key findings:
 
 - Entity resolution thresholds were already optimal (validated, not just assumed)
 - System prompt compression saves 99% tokens for query expansion calls
