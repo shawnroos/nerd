@@ -1,4 +1,4 @@
-# 👓 nerd
+# nerd
 
 Your obsessive overnight research assistant for Claude Code. Finds every tunable parameter in your codebase, designs experiments with competing theories, runs them in worktrees while you sleep, and delivers findings that tell you what to keep, what to change, and what to rearchitect.
 
