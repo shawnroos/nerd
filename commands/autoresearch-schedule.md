@@ -37,6 +37,37 @@ window_hours = (stop - start)
 capacity = experiments_per_hour * window_hours
 ```
 
+## Register in Global Queue
+
+Multiple projects on this machine may schedule autoresearch. The global queue coordinates:
+
+```bash
+QUEUE="$HOME/.claude/plugins/autoresearch/global-queue.yaml"
+```
+
+When scheduling, append this project's backlog experiments to the global queue:
+
+```yaml
+queue:
+  - project: "{cwd}"
+    experiment_id: "{id}"
+    priority: medium
+    status: pending
+    estimated_minutes: {est}
+```
+
+**Concurrency rules** (enforced by the runner):
+- `max_codebase_experiments: 4` — total parallel across ALL projects
+- `max_per_project: 2` — prevent one project hogging the window
+- Round-robin within priority tiers for fairness across projects
+
+Show global queue state before confirming:
+```
+Global Queue: {N} experiments across {M} projects
+  Arras: 6 pending (~4.5 hrs)
+  Jeans: 2 pending (~1.5 hrs)
+```
+
 ## Create Runner Script
 
 ```bash
