@@ -21,6 +21,10 @@ Schedule when experiments run. Supports overnight windows and recurring schedule
 - `cancel` / `stop` → Remove scheduled runs
 - Empty → Show current schedule and ask
 
+**Time handling:** If `tonight` is specified and the start hour has already passed, check the current time:
+- If still within the window (e.g., it's 23:20 and window is 22:00-06:00), start immediately by setting the trigger to 5 minutes from now.
+- If the window has fully passed, schedule for tomorrow and inform the user.
+
 ## Check Prerequisites
 
 ```bash
@@ -98,7 +102,7 @@ while [ "$attempt" -lt "$max_attempts" ]; do
     attempt=$((attempt + 1))
     log "Attempt $attempt/$max_attempts"
 
-    NERD_SCHEDULED=1 claude --print --dangerously-skip-permissions -p "
+    NERD_SCHEDULED=1 claude --print --allow-dangerously-skip-permissions --dangerously-skip-permissions -p "
 Run /nerd. Execute all backlog experiments autonomously.
 Use /loop 5m to monitor agents. Merge completed experiments.
 When all done, compile reports and exit.
@@ -150,7 +154,7 @@ cat > "$PLIST" << PLIST
         <key>PROJECT_DIR</key>
         <string>{cwd}</string>
         <key>PATH</key>
-        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+        <string>${HOME}/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
     </dict>
     <key>StartCalendarInterval</key>
     {calendar_interval_entries}
