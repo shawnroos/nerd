@@ -1,13 +1,13 @@
 ---
-name: autoresearch
-description: "Run autonomous codebase research. Analyzes the codebase for tunable parameters, generates experiment plans, executes them in worktrees, and compiles findings. Use with no args for full autonomous pipeline, or pass a topic to focus research (e.g., /autoresearch search relevance)."
+name: nerd
+description: "Let the nerd loose on your codebase. Obsessively finds every tunable parameter, designs rigorous experiments, runs them in worktrees while you sleep, and delivers findings. Use with no args to nerd out on everything, or pass a topic to focus (e.g., /nerd search relevance)."
 argument-hint: "[topic]"
 allowed-tools: "Read,Write,Edit,Bash,Glob,Grep,Agent,AskUserQuestion"
 ---
 
-# Autoresearch — Autonomous Codebase Research Pipeline
+# nerd — Obsessive Codebase Research Pipeline
 
-Discover optimization opportunities in a codebase and run experiments to find empirically optimal parameter values.
+Turn the nerd loose. It will find every hardcoded threshold, magic number, and untested heuristic in your codebase, then systematically prove whether they're optimal or not.
 
 ## Input
 
@@ -15,13 +15,13 @@ Discover optimization opportunities in a codebase and run experiments to find em
 
 ## Pre-flight
 
-**Check schedule mode:** If `AUTORESEARCH_SCHEDULED=1` is set, operate fully autonomously — skip all AskUserQuestion calls, execute all backlog experiments, make decisions without user input.
+**Check schedule mode:** If `NERD_SCHEDULED=1` is set, operate fully autonomously — skip all AskUserQuestion calls, execute all backlog experiments, make decisions without user input.
 
 **Check setup:**
 ```bash
-cat ~/.claude/plugins/autoresearch/hardware-profile.yaml 2>/dev/null
+cat ~/.claude/plugins/nerd/hardware-profile.yaml 2>/dev/null
 ```
-If no hardware profile: "Run /autoresearch-setup first." Stop.
+If no hardware profile: "Run /nerd-setup first to calibrate your hardware." Stop.
 
 **Detect project:**
 ```bash
@@ -32,40 +32,42 @@ git branch --show-current
 
 Store: language, test command, current branch.
 
-## Phase 1: Load Backlog
+## Phase 1: Check the Backlog
 
 ```bash
-cat .claude/autoresearch.local.md 2>/dev/null
+cat .claude/nerd.local.md 2>/dev/null
 ```
 
-If backlog has `proposed` entries and no topic: skip to Phase 3.
+If backlog has `proposed` entries and no topic: skip to Phase 3 — the nerd has already been collecting findings.
 If backlog empty or topic specified: continue to Phase 2.
 
-## Phase 2: Codebase Analysis
+## Phase 2: Obsessive Codebase Scan
 
-Launch the parameter-scanner agent:
+Launch the parameter-scanner agent to crawl the codebase:
 
 ```
-Agent(subagent_type="autoresearch:parameter-scanner", prompt="Scan {cwd} for tunable parameters. Topic: {user_topic or 'all'}. Return structured JSON list.", run_in_background=false)
+Agent(subagent_type="nerd:parameter-scanner", prompt="Scan {cwd} for tunable parameters. Topic: {user_topic or 'all'}. Return structured JSON list.", run_in_background=false)
 ```
 
-Present findings. Use AskUserQuestion: "Which experiments to plan?" Add selections to backlog.
+Present findings. Use AskUserQuestion: "The nerd found {N} research opportunities. Which ones should it investigate?"
 
-## Phase 3: Experiment Planning
+Add selections to backlog.
+
+## Phase 3: Experiment Design
 
 For each `proposed` entry, launch plan-reviewer agents **in parallel**:
 
 ```
-Agent(subagent_type="autoresearch:plan-reviewer", prompt="Create experiment plan for {entry.title}. Parameter: {entry.parameter} at {entry.file}:{entry.line}. Write to docs/research/plans/{entry.id}-plan.md.", run_in_background=true)
+Agent(subagent_type="nerd:plan-reviewer", prompt="Create experiment plan for {entry.title}. Parameter: {entry.parameter} at {entry.file}:{entry.line}. Write to docs/research/plans/{entry.id}-plan.md.", run_in_background=true)
 ```
 
 Update status: `proposed` → `planned`. Wait for all plan agents.
 
 ## Phase 4: Review Gate
 
-Present plans. Use AskUserQuestion: "Execute all, review first, or select subset?"
+Present plans. Use AskUserQuestion: "Plans ready. Execute all, review first, or select subset?"
 
-## Phase 5: Execute in Worktrees
+## Phase 5: Run Experiments in Worktrees
 
 ### 5.1: Create Shared Eval Scaffold
 
@@ -81,12 +83,12 @@ If no eval module exists, create a scaffold appropriate to the project language 
 For each `planned` experiment:
 
 ```bash
-git worktree add worktrees/research-{entry.id} --detach HEAD
-cd worktrees/research-{entry.id} && git checkout -b research/{entry.id}
+git worktree add worktrees/nerd-{entry.id} --detach HEAD
+cd worktrees/nerd-{entry.id} && git checkout -b nerd/{entry.id}
 ```
 
 ```
-Agent(subagent_type="autoresearch:experiment-executor", prompt="
+Agent(subagent_type="nerd:experiment-executor", prompt="
 Execute plan at docs/research/plans/{entry.id}-plan.md.
 Worktree: {path}. Language: {lang}. Tests: {test_cmd}.
 Put code in src/eval/{entry.id}.rs (or equivalent).
@@ -102,12 +104,12 @@ Cap parallel agents at `max_parallel_experiments` from config.
 As each agent completes, merge immediately:
 
 ```bash
-git merge research/{entry.id} --no-edit
+git merge nerd/{entry.id} --no-edit
 {test_command}  # verify tests pass
 ```
 
 If tests fail: `git reset --hard HEAD~1`, mark `failed`, keep worktree.
-If merge succeeds: `git worktree remove worktrees/research-{entry.id}`.
+If merge succeeds: `git worktree remove worktrees/nerd-{entry.id}`.
 
 Merge conflicts in eval module files (mod.rs, EvalAction enum) are additive — combine both sides.
 
@@ -115,10 +117,10 @@ Merge conflicts in eval module files (mod.rs, EvalAction enum) are additive — 
 
 Use `/loop 5m` to check on background agents. Merge experiments as they complete. When all are done or failed, proceed.
 
-## Phase 7: Compile Reports
+## Phase 7: Deliver Findings
 
 ```
-Agent(subagent_type="autoresearch:report-compiler", prompt="Compile findings from docs/research/results/ into docs/research/findings.md and per-experiment reports.", run_in_background=false)
+Agent(subagent_type="nerd:report-compiler", prompt="Compile findings from docs/research/results/ into docs/research/findings.md and per-experiment reports.", run_in_background=false)
 ```
 
 Present summary. Clean up remaining worktrees:

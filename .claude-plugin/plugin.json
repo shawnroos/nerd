@@ -1,9 +1,9 @@
 {
-  "name": "autoresearch",
+  "name": "nerd",
   "version": "0.1.0",
-  "description": "Autonomous codebase research plugin. Analyzes codebases for tunable parameters, generates experiment plans, executes them in isolated worktrees, and compiles findings into structured research reports.",
+  "description": "Your overnight research assistant. Obsessively analyzes codebases for tunable parameters, designs experiments, runs them in worktrees while you sleep, and delivers findings with recommendations.",
   "author": {
     "name": "Shawn Roos"
   },
-  "keywords": ["research", "experiments", "optimization", "parameter-tuning", "autoresearch"]
+  "keywords": ["research", "experiments", "optimization", "parameter-tuning", "nerd"]
 }

@@ -1,11 +1,11 @@
 ---
-name: autoresearch-schedule
+name: nerd-schedule
 description: "Schedule autoresearch experiments to run at specific times (e.g., overnight). Uses macOS LaunchAgent for scheduling."
 argument-hint: "[tonight|weeknights|HH:MM-HH:MM|cancel]"
 allowed-tools: "Read,Write,Bash,AskUserQuestion"
 ---
 
-# Autoresearch Schedule
+# Nerd Schedule
 
 Schedule when experiments run. Supports overnight windows and recurring schedules.
 
@@ -24,10 +24,10 @@ Schedule when experiments run. Supports overnight windows and recurring schedule
 ## Check Prerequisites
 
 ```bash
-cat ~/.claude/plugins/autoresearch/hardware-profile.yaml 2>/dev/null | grep experiments_per_hour
+cat ~/.claude/plugins/nerd/hardware-profile.yaml 2>/dev/null | grep experiments_per_hour
 ```
 
-If no hardware profile: "Run /autoresearch-setup first."
+If no hardware profile: "Run /nerd-setup first."
 
 ## Calculate Capacity
 
@@ -42,7 +42,7 @@ capacity = experiments_per_hour * window_hours
 Multiple projects on this machine may schedule autoresearch. The global queue coordinates:
 
 ```bash
-QUEUE="$HOME/.claude/plugins/autoresearch/global-queue.yaml"
+QUEUE="$HOME/.claude/plugins/nerd/global-queue.yaml"
 ```
 
 When scheduling, append this project's backlog experiments to the global queue:
@@ -71,18 +71,18 @@ Global Queue: {N} experiments across {M} projects
 ## Create Runner Script
 
 ```bash
-mkdir -p ~/.claude/plugins/autoresearch/scripts ~/.claude/plugins/autoresearch/logs
+mkdir -p ~/.claude/plugins/nerd/scripts ~/.claude/plugins/nerd/logs
 
-cat > ~/.claude/plugins/autoresearch/scripts/scheduled-run.sh << 'RUNNER'
+cat > ~/.claude/plugins/nerd/scripts/scheduled-run.sh << 'RUNNER'
 #!/bin/bash
-# Autoresearch scheduled runner — resilient to transient failures
+# Nerd scheduled runner — resilient to transient failures
 
-LOG="$HOME/.claude/plugins/autoresearch/logs/$(date +%Y-%m-%d).log"
+LOG="$HOME/.claude/plugins/nerd/logs/$(date +%Y-%m-%d).log"
 mkdir -p "$(dirname "$LOG")"
 
 log() { echo "$(date): $1" >> "$LOG"; }
 
-log "Autoresearch starting (project: $PROJECT_DIR)"
+log "Nerd starting (project: $PROJECT_DIR)"
 
 if [ -z "${PROJECT_DIR:-}" ]; then
     log "ERROR: PROJECT_DIR not set. Exiting."
@@ -98,8 +98,8 @@ while [ "$attempt" -lt "$max_attempts" ]; do
     attempt=$((attempt + 1))
     log "Attempt $attempt/$max_attempts"
 
-    AUTORESEARCH_SCHEDULED=1 claude --print --dangerously-skip-permissions -p "
-Run /autoresearch. Execute all backlog experiments autonomously.
+    NERD_SCHEDULED=1 claude --print --dangerously-skip-permissions -p "
+Run /nerd. Execute all backlog experiments autonomously.
 Use /loop 5m to monitor agents. Merge completed experiments.
 When all done, compile reports and exit.
 Never ask questions — make all decisions autonomously.
@@ -107,7 +107,7 @@ Never ask questions — make all decisions autonomously.
 
     exit_code=$?
     if [ "$exit_code" -eq 0 ]; then
-        log "Autoresearch completed successfully"
+        log "Nerd completed successfully"
         break
     else
         log "WARNING: claude exited with code $exit_code"
@@ -120,16 +120,16 @@ Never ask questions — make all decisions autonomously.
     fi
 done
 
-log "Autoresearch session ended"
+log "Nerd session ended"
 RUNNER
 
-chmod +x ~/.claude/plugins/autoresearch/scripts/scheduled-run.sh
+chmod +x ~/.claude/plugins/nerd/scripts/scheduled-run.sh
 ```
 
 ## Register LaunchAgent
 
 ```bash
-PLIST="$HOME/Library/LaunchAgents/com.autoresearch.scheduled.plist"
+PLIST="$HOME/Library/LaunchAgents/com.nerd.scheduled.plist"
 
 cat > "$PLIST" << PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -137,15 +137,15 @@ cat > "$PLIST" << PLIST
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>com.autoresearch.scheduled</string>
+    <string>com.nerd.scheduled</string>
     <key>ProgramArguments</key>
     <array>
         <string>/bin/bash</string>
-        <string>${HOME}/.claude/plugins/autoresearch/scripts/scheduled-run.sh</string>
+        <string>${HOME}/.claude/plugins/nerd/scripts/scheduled-run.sh</string>
     </array>
     <key>EnvironmentVariables</key>
     <dict>
-        <key>AUTORESEARCH_SCHEDULED</key>
+        <key>NERD_SCHEDULED</key>
         <string>1</string>
         <key>PROJECT_DIR</key>
         <string>{cwd}</string>
@@ -155,9 +155,9 @@ cat > "$PLIST" << PLIST
     <key>StartCalendarInterval</key>
     {calendar_interval_entries}
     <key>StandardOutPath</key>
-    <string>${HOME}/.claude/plugins/autoresearch/logs/launchd.log</string>
+    <string>${HOME}/.claude/plugins/nerd/logs/launchd.log</string>
     <key>StandardErrorPath</key>
-    <string>${HOME}/.claude/plugins/autoresearch/logs/launchd-err.log</string>
+    <string>${HOME}/.claude/plugins/nerd/logs/launchd-err.log</string>
     <key>Nice</key>
     <integer>10</integer>
     <key>ProcessType</key>
@@ -177,20 +177,20 @@ launchctl load "$PLIST"
 ## Confirm
 
 ```
-Autoresearch Scheduled
+Nerd Scheduled
   Window: {start} - {stop}
   Capacity: ~{capacity} experiments per window
   Project: {cwd}
-  Logs: ~/.claude/plugins/autoresearch/logs/
+  Logs: ~/.claude/plugins/nerd/logs/
 
-  /autoresearch-status to check progress
-  /autoresearch-schedule cancel to remove
+  /nerd-status to check progress
+  /nerd-schedule cancel to remove
 ```
 
 ## Cancel
 
 ```bash
-launchctl unload ~/Library/LaunchAgents/com.autoresearch.scheduled.plist 2>/dev/null
-rm ~/Library/LaunchAgents/com.autoresearch.scheduled.plist 2>/dev/null
+launchctl unload ~/Library/LaunchAgents/com.nerd.scheduled.plist 2>/dev/null
+rm ~/Library/LaunchAgents/com.nerd.scheduled.plist 2>/dev/null
 echo "Schedule cancelled."
 ```

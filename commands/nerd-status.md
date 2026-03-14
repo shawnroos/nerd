@@ -1,17 +1,17 @@
 ---
-name: autoresearch-status
+name: nerd-status
 description: "Check the status of the autoresearch queue, running experiments, and backlog. Shows progress, completed findings, and pending proposals."
 allowed-tools: "Read,Bash,Glob"
 ---
 
-# Autoresearch Status
+# Nerd Status
 
 Display the current state of the autoresearch pipeline.
 
 ## Read Backlog
 
 ```bash
-cat .claude/autoresearch.local.md 2>/dev/null
+cat .claude/nerd.local.md 2>/dev/null
 ```
 
 Parse the YAML frontmatter for backlog entries.
@@ -34,7 +34,7 @@ ls docs/research/*-report.md 2>/dev/null | wc -l
 Format output as:
 
 ```
-Autoresearch Status
+Nerd Status
 ═══════════════════
 
 Backlog:
@@ -45,8 +45,8 @@ Backlog:
   Failed:   {count}
 
 Active Worktrees:
-  worktrees/research-E001 → feat/research-E001 (running)
-  worktrees/research-E002 → feat/research-E002 (running)
+  worktrees/nerd-E001 → feat/research-E001 (running)
+  worktrees/nerd-E002 → feat/research-E002 (running)
 
 Recent Findings:
   E001: JW threshold optimal at 0.85 [KEEP]
@@ -55,4 +55,4 @@ Recent Findings:
 Reports: docs/research/
 ```
 
-If backlog is empty: "No research backlog. Run /autoresearch to analyze the codebase."
+If backlog is empty: "No research backlog. Run /nerd to analyze the codebase."

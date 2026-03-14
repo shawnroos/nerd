@@ -20,7 +20,7 @@ You compile autoresearch experiment results into clear, actionable research repo
 ## Input
 - Raw results from `docs/research/results/*.json`
 - Experiment plans from `docs/research/plans/*-plan.md`
-- Backlog entries from `.claude/autoresearch.local.md`
+- Backlog entries from `.claude/nerd.local.md`
 
 ## Output Structure
 
@@ -81,7 +81,7 @@ Exact code change needed (if CHANGE):
 
 ```markdown
 ---
-title: "Autoresearch Findings"
+title: "Nerd Findings"
 date: {date}
 experiments_run: {count}
 recommendations: {count changes}
