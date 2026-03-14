@@ -32,6 +32,7 @@ Scans the codebase, identifies tunable parameters, plans experiments with compet
   ├─ parameter-scanner finds opportunities
   ├─ You pick which to investigate
   ├─ plan-reviewer generates 3 competing theories per experiment
+  ├─ lab-tech validates the lab is ready (data access, config wiring, eval commands)
   ├─ experiment-executor builds harnesses in parallel worktrees
   ├─ report-compiler evaluates which theories held up
   └─ loop-scout recommends the best target for deep iteration
@@ -43,6 +44,7 @@ Continuous self-improvement on one area. The agent reads the code, hypothesizes 
 
 ```
 /nerd-loop "search relevance"
+  ├─ lab-tech validates metric command and data access
   ├─ Establishes baseline metric
   ├─ Loops: edit → test → measure → keep/discard
   ├─ Pivots strategy after 5 consecutive failures
@@ -96,12 +98,14 @@ Global queue at `~/.claude/plugins/nerd/global-queue.yaml` coordinates across re
     ├─ Phase 1-2: Scan for parameters
     ├─ Phase 3:   Plan with competing theories
     ├─ Phase 4:   Review gate
+    ├─ Phase 4.5: Lab readiness check (data, config wiring, eval commands)
     ├─ Phase 5:   Execute in parallel worktrees
     ├─ Phase 6:   Monitor with /loop
     ├─ Phase 7:   Compile theory-aware findings
     └─ Phase 8:   Scout for loop candidates
                     ↓
 /nerd-loop (deep iteration)
+    ├─ Lab readiness check
     ├─ Baseline → edit → test → measure → keep/discard
     ├─ Reflect every 5 iterations
     ├─ Normal → Pivot → Escalate → Local Maximum
@@ -112,12 +116,15 @@ Global queue at `~/.claude/plugins/nerd/global-queue.yaml` coordinates across re
 
 ```
 docs/research/
-├── findings.md                 # Executive summary with theory verdicts
-├── loop-candidates.md          # Scout recommendations for deep iteration
-├── plans/E001-plan.md          # Plans with competing theories
-├── results/E001-results.json   # Raw data
-├── E001-report.md              # KEEP / CHANGE / REARCHITECT / REMOVE
-└── loop-search-relevance-report.md  # Deep loop improvement timeline
+├── findings.md                          # Executive summary with theory verdicts
+├── loop-candidates.md                   # Scout recommendations for deep iteration
+├── lab-readiness-batch-{timestamp}.md   # Pre-flight validation report
+├── lab-readiness-loop-{focus-slug}.md   # Loop readiness report
+├── plans/E001-plan.md                   # Plans with competing theories
+├── results/E001-results.json            # Raw data
+├── fixtures/E002/queries.json           # Lab-tech scaffolded test data
+├── E001-report.md                       # KEEP / CHANGE / REARCHITECT / REMOVE
+└── loop-search-relevance-report.md      # Deep loop improvement timeline
 ```
 
 ## Configuration
@@ -145,6 +152,7 @@ backlog: []
 |-------|-------|-------|------|
 | `parameter-scanner` | Cyan | Sonnet | Finds tunable parameters |
 | `plan-reviewer` | Yellow | Opus | Generates competing theories, reviews plans |
+| `lab-tech` | Orange | Sonnet | Pre-flight validation and infrastructure scaffolding |
 | `experiment-executor` | Green | Sonnet | Builds and runs experiments in worktrees |
 | `report-compiler` | Blue | Sonnet | Evaluates theories, writes findings |
 | `loop-scout` | Magenta | Sonnet | Identifies best candidates for /nerd-loop |

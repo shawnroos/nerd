@@ -75,7 +75,7 @@ constraints:
   - No public API changes
 started_at: "{timestamp}"
 iterations: 0
-best_metric: {baseline_value}
+best_metric: null  # filled after baseline measurement in Step 4
 ---
 
 # Nerd Loop: {research_focus}
@@ -99,13 +99,35 @@ best_metric: {baseline_value}
 |---|--------|--------|---------|--------|-------|
 ```
 
-## Step 2: Create the Loop Branch
+## Step 2: Lab Readiness Check
+
+Before measuring baseline or starting the loop, validate the environment:
+
+```
+Agent(subagent_type="nerd:lab-tech", prompt="
+Validate readiness for a continuous loop on '{research_focus}'. This is loop mode — no experiment plans.
+Metric command: {metric_command}. Scope files: {scope_files}.
+Project root: {cwd}. Language: {lang}. Test command: {test_cmd}. Build command: {build_cmd}.
+Check: data access for the metric command, eval command readiness (verify metric_command runs and produces output), tool availability, and worktree readiness (disk space for many iterations).
+Scaffold missing eval infrastructure if needed (you own eval module creation in loop mode).
+Write report to docs/research/lab-readiness-loop-{focus-slug}.md.
+", run_in_background=false)
+```
+
+**Based on the lab-tech report:**
+- **READY**: Continue to Step 3.
+- **SCAFFOLDED**: Lab-tech fixed the issues. Note: scaffolded files are on the current branch. Continue to Step 3.
+- **BLOCKED**: Present blockers. Use AskUserQuestion: "Lab readiness check failed: {blocker_summary}. Fix and retry, or abort?"
+  - If fix: user fixes the issue, re-run lab-tech.
+  - If abort: stop with a clear message. Do not create the loop branch or protocol file.
+
+## Step 3: Create the Loop Branch
 
 ```bash
 git checkout -b nerd-loop/{focus-slug}
 ```
 
-## Step 3: Measure Baseline
+## Step 4: Measure Baseline
 
 Run the metric command to establish the starting point:
 
@@ -115,7 +137,7 @@ Run the metric command to establish the starting point:
 
 Record the baseline in the protocol file.
 
-## Step 4: Launch the Loop
+## Step 5: Launch the Loop
 
 Launch an autonomous agent that runs indefinitely:
 
@@ -166,7 +188,7 @@ THE LOOP (run forever):
    - **consecutive_discards reaches 5 AFTER an escalation**: LOCAL MAXIMUM REACHED.
      Log: "Local maximum reached after {total_iterations} iterations."
      Log: "Best metric: {best_metric} (improved from {baseline} = {improvement}%)"
-     STOP THE LOOP. Proceed to Step 6 (wrap-up).
+     STOP THE LOOP. Proceed to Step 7 (wrap-up).
 
    This gives the loop 3 chances (normal → pivot → escalate) before concluding
    it has found the local optimum. That's 15 consecutive failed iterations across
@@ -201,7 +223,7 @@ Hardware: Read ~/.claude/plugins/nerd/hardware-profile.yaml for constraints.
 ", run_in_background=true)
 ```
 
-## Step 5: Monitor
+## Step 6: Monitor
 
 Report to the user:
 
@@ -223,7 +245,7 @@ Nerd Loop Started
 
 Then use `/loop 5m` to periodically check the agent's progress and report iteration count + current best metric.
 
-## Step 6: When Loop Ends (Local Maximum or Interrupted)
+## Step 7: When Loop Ends (Local Maximum or Interrupted)
 
 The loop ends when either:
 - **Local maximum detected**: 15 consecutive discards across 3 strategic phases (normal → pivot → escalate)

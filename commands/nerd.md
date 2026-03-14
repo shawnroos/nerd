@@ -105,6 +105,30 @@ Update status: `proposed` → `planned`. Wait for all plan agents.
 
 Present plans. Use AskUserQuestion: "Plans ready. Execute all, review first, or select subset?"
 
+## Phase 4.5: Lab Readiness Check
+
+Before spinning up expensive experiment agents, validate that the lab is ready.
+
+```
+Agent(subagent_type="nerd:lab-tech", prompt="
+Validate readiness for experiments: {comma-separated plan paths}.
+Project root: {cwd}. Language: {lang}. Test command: {test_cmd}. Build command: {build_cmd}.
+Run all checks: data access, config wiring, eval commands, tool availability, worktree readiness, and cross-experiment conflicts.
+Scaffold any missing infrastructure (export scripts, test fixtures). Do NOT create the eval module — Phase 5.1 handles that.
+Write report to docs/research/lab-readiness-batch-{timestamp}.md.
+", run_in_background=false)
+```
+
+**Based on the lab-tech report:**
+- **All READY**: Continue to Phase 5.
+- **Some SCAFFOLDED**: Lab-tech already fixed these. Continue to Phase 5.
+- **Any BLOCKED**: Present blockers to user. Use AskUserQuestion: "Lab-tech found blockers: {blocker_summary}. Skip blocked experiments, or proceed anyway (results may be invalid)?"
+  - If skip: remove blocked experiments from this batch, continue with the rest.
+  - If proceed: mark experiments as "may produce invalid results" and continue.
+  - Note: blockers like dead config fields require code changes that are outside the lab-tech's scope. The user should fix these manually before re-running `/nerd`.
+
+In scheduled mode (`NERD_SCHEDULED=1`): skip blocked experiments automatically, proceed with ready ones.
+
 ## Phase 5: Run Experiments in Worktrees
 
 ### 5.1: Create Shared Eval Scaffold
@@ -114,7 +138,7 @@ Before launching experiments, set up consolidated infrastructure on current bran
 mkdir -p docs/research/plans docs/research/results
 ```
 
-If no eval module exists, create a scaffold appropriate to the project language (e.g., `src/eval/mod.rs` for Rust, `src/eval/index.ts` for TS). Add a single `Eval` CLI subcommand. Each experiment extends this — never creates its own.
+If no eval module exists (check first — lab-tech in Phase 4.5 does NOT create it), create a scaffold appropriate to the project language (e.g., `src/eval/mod.rs` for Rust, `src/eval/index.ts` for TS). Add a single `Eval` CLI subcommand. Each experiment extends this — never creates its own.
 
 ### 5.2: Launch Experiment Agents
 
