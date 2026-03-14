@@ -78,7 +78,7 @@ if [ -d "$HOME/projects/autoresearch" ]; then
     echo "autoresearch already installed"
 else
     cd ~/projects
-    git clone https://github.com/karpathy/nerd.git
+    git clone https://github.com/karpathy/autoresearch.git
     cd autoresearch
     uv sync
     uv run prepare.py

@@ -19,7 +19,7 @@ Parse the YAML frontmatter for backlog entries.
 ## Check Worktrees
 
 ```bash
-git worktree list 2>/dev/null | grep "research-"
+git worktree list 2>/dev/null | grep "nerd-"
 ```
 
 ## Check Results
@@ -45,8 +45,8 @@ Backlog:
   Failed:   {count}
 
 Active Worktrees:
-  worktrees/nerd-E001 → feat/research-E001 (running)
-  worktrees/nerd-E002 → feat/research-E002 (running)
+  worktrees/nerd-E001 → nerd/E001 (running)
+  worktrees/nerd-E002 → nerd/E002 (running)
 
 Recent Findings:
   E001: JW threshold optimal at 0.85 [KEEP]
