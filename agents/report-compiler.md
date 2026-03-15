@@ -285,7 +285,12 @@ DAG Updated: +{N} theories, +{N} verdicts, +{N} edges
 
 ### 8.7: Write Build Infrastructure Nodes
 
-After writing research nodes, check experiment results for build cache information.
+**Re-read the DAG file first** — Step 8.5 wrote research nodes, so the file on disk has changed since Step 8.1's initial read:
+```bash
+cat {dag_path}
+```
+
+Then check experiment results for build cache information.
 
 **Scan all results JSON files** for `cache_fallback` fields:
 

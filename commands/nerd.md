@@ -226,16 +226,18 @@ If no eval module exists (check first — lab-tech in Phase 4.5 does NOT create 
 For each `planned` experiment:
 
 ```bash
+PROJECT_ROOT="$(pwd)"
 git worktree add worktrees/nerd-{entry.id} --detach HEAD
 cd worktrees/nerd-{entry.id} && git checkout -b nerd/{entry.id}
+cd "$PROJECT_ROOT"
 ```
 
-If target_copy strategy, clone build artifacts using copy-on-write (run from project root, NOT from the worktree):
+If target_copy strategy, clone build artifacts using copy-on-write:
 ```bash
-# macOS (APFS) — use absolute paths to avoid ambiguity:
-cp -c -r "$(pwd)/target/" "$(pwd)/worktrees/nerd-{entry.id}/target/" 2>/dev/null
+# macOS (APFS):
+cp -c -r "$PROJECT_ROOT/target/" "$PROJECT_ROOT/worktrees/nerd-{entry.id}/target/" 2>/dev/null
 # Linux (btrfs):
-# cp --reflink=auto -r "$(pwd)/target/" "$(pwd)/worktrees/nerd-{entry.id}/target/" 2>/dev/null
+# cp --reflink=auto -r "$PROJECT_ROOT/target/" "$PROJECT_ROOT/worktrees/nerd-{entry.id}/target/" 2>/dev/null
 ```
 
 ```
