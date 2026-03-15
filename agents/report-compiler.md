@@ -282,3 +282,72 @@ DAG Updated: +{N} theories, +{N} verdicts, +{N} edges
   V001-V003: verdicts (2 REFUTED, 1 SUPPORTED)
   3 edges (2 refutes, 1 spawned)
 ```
+
+### 8.7: Write Build Infrastructure Nodes
+
+After writing research nodes, check experiment results for build cache information.
+
+**Scan all results JSON files** for `cache_fallback` fields:
+
+```bash
+grep -l "cache_fallback" docs/research/results/*-results.json 2>/dev/null
+```
+
+**Read the current build cache config** from `.claude/nerd.local.md`:
+```bash
+grep -E "^build_cache" .claude/nerd.local.md 2>/dev/null
+```
+
+**Write a `cache_verdict` node** (I-prefixed ID, using the next available I number after any existing I nodes):
+
+If NO experiments had `cache_fallback: true` AND `build_cache_strategy` is set:
+```json
+{
+  "id": "I{next_id}",
+  "type": "cache_verdict",
+  "title": "{strategy}: reliable for this batch",
+  "strategy": "{build_cache_strategy}",
+  "result": "SUCCESS",
+  "evidence": "{N} experiments completed with {strategy}, no build failures",
+  "runs_tested": 1,
+  "created_at": "{ISO 8601 timestamp}",
+  "status": "active"
+}
+```
+
+If ANY experiment had `cache_fallback: true`:
+```json
+{
+  "id": "I{next_id}",
+  "type": "cache_verdict",
+  "title": "{strategy}: caused build failures",
+  "strategy": "{build_cache_strategy}",
+  "result": "FAILED",
+  "evidence": "{N} experiments experienced CACHE_FALLBACK. Error: {error from results}",
+  "failure_count": {N},
+  "created_at": "{ISO 8601 timestamp}",
+  "status": "active"
+}
+```
+
+If a prior `cache_verdict` exists for the same strategy with the opposite result, create a `spawned` edge linking them:
+```json
+{
+  "from": "I{new_verdict}",
+  "to": "I{prior_verdict}",
+  "type": "spawned",
+  "reason": "Strategy {result} in this batch, contradicting prior {prior_result}"
+}
+```
+
+If `build_cache_strategy` is not set or is `none`, skip this step — no cache was used.
+
+**Optionally update an existing `build_profile` node** if the build times from this batch differ significantly from the stored profile. Read `build_time_cold_seconds` from nerd.local.md and compare. If no `build_profile` node exists yet, create one with the data from the current config.
+
+Write infra nodes using the same crash-safe protocol as Step 8.5 (backup → tmp → validate → rename). Infra nodes go in the same flat `nodes` array as research nodes.
+
+Output:
+```
+Infra DAG: +{N} cache verdicts
+  I{id}: {strategy} {result} — {evidence}
+```

@@ -172,7 +172,9 @@ Before spinning up expensive experiment agents, validate that the lab is ready.
 Agent(subagent_type="nerd:lab-tech", prompt="
 Validate readiness for experiments: {comma-separated plan paths}.
 Project root: {cwd}. Language: {lang}. Test command: {test_cmd}. Build command: {build_cmd}.
-Run all checks: data access, config wiring, eval commands, tool availability, worktree readiness, and cross-experiment conflicts.
+Project DAG path: {dag_path}. Max parallel experiments: {max_parallel_experiments}.
+Run all checks: data access, config wiring, eval commands, tool availability, worktree readiness, cross-experiment conflicts, and build infrastructure (Check 7).
+Check 7: Profile the build, detect sccache, select cache strategy, set up caching, write build_cache config to .claude/nerd.local.md. Read infra nodes from the DAG for prior cache verdicts.
 Scaffold any missing infrastructure (export scripts, test fixtures). Do NOT create the eval module — Phase 5.1 handles that.
 Write report to docs/research/lab-readiness-batch-{timestamp}.md.
 ", run_in_background=false)
@@ -190,6 +192,26 @@ In scheduled mode (`NERD_SCHEDULED=1`): skip blocked experiments automatically, 
 
 ## Phase 5: Run Experiments in Worktrees
 
+### 5.0: Build Infrastructure Setup
+
+Read the build cache config written by lab-tech Check 7:
+
+```bash
+grep -E "^build_cache" .claude/nerd.local.md 2>/dev/null
+```
+
+**If strategy is `sccache`:**
+- Verify the sccache server is running: `sccache --show-stats 2>/dev/null`
+- If not running, start it: `sccache --start-server`
+- Store the env var prefix for Phase 5.2: `RUSTC_WRAPPER=sccache`
+
+**If strategy is `target_copy`:**
+- Verify `target/` exists in the main worktree (lab-tech's cache warming in Check 7d should have populated it)
+- Note: the copy happens during worktree creation in Phase 5.2
+
+**If strategy is `none` or not set:**
+- Proceed without build caching. Experiments will compile independently.
+
 ### 5.1: Create Shared Eval Scaffold
 
 Before launching experiments, set up consolidated infrastructure on current branch:
@@ -206,6 +228,12 @@ For each `planned` experiment:
 ```bash
 git worktree add worktrees/nerd-{entry.id} --detach HEAD
 cd worktrees/nerd-{entry.id} && git checkout -b nerd/{entry.id}
+
+# If target_copy strategy: clone build artifacts using copy-on-write
+# macOS (APFS):
+cp -c -r target/ worktrees/nerd-{entry.id}/target/ 2>/dev/null
+# Linux (btrfs):
+# cp --reflink=auto -r target/ worktrees/nerd-{entry.id}/target/ 2>/dev/null
 ```
 
 ```
@@ -215,6 +243,9 @@ Worktree: {path}. Language: {lang}. Tests: {test_cmd}.
 Put code in src/eval/{entry.id}.rs (or equivalent).
 Add to existing EvalAction enum. Commit conventionally.
 Write results to docs/research/results/{entry.id}-results.json.
+Before building, read .claude/nerd.local.md for build_cache_strategy and build_cache_env.
+If build_cache_env is set, prefix all cargo/build commands with it inline (e.g., RUSTC_WRAPPER=sccache cargo build).
+If a build fails with cache, retry without it and add cache_fallback: true to results JSON.
 ", run_in_background=true)
 ```
 
@@ -271,6 +302,16 @@ Loop Candidates (ranked by potential):
 ```
 
 If running in scheduled mode (`NERD_SCHEDULED=1`) and the schedule window has time remaining, automatically launch `/nerd-loop` on the top candidate.
+
+## Phase 9: Cleanup
+
+Stop the sccache server if one was started in Phase 5.0:
+
+```bash
+sccache --stop-server 2>/dev/null
+```
+
+This is safe to run even if sccache was not started — it exits silently.
 
 ## Error Handling
 

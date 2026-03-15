@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "Nerd Research DAG",
-  "description": "Schema for the nerd research knowledge graph. Per-project files store theories, verdicts, and edges. The global index stores synthesis nodes.",
+  "description": "Schema for the nerd research knowledge graph. Per-project files store theories, verdicts, build infrastructure profiles (build_profile, cache_verdict), and edges. The global index stores synthesis nodes and tool_availability nodes. Infra nodes use I-prefixed IDs.",
 
   "definitions": {
     "theory_node": {
@@ -48,6 +48,77 @@
         },
         "codebase_hash": { "type": "string", "pattern": "^[a-f0-9]{8}$" },
         "created_at": { "type": "string", "format": "date-time" },
+        "status": { "enum": ["active", "stale"] }
+      }
+    },
+
+    "build_profile_node": {
+      "type": "object",
+      "description": "Build infrastructure profile for a project — dependency count, build times, artifact sizes. Created by lab-tech Check 7.",
+      "required": ["id", "type", "title", "data", "source_files", "codebase_hash", "created_at", "status"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^I\\d{3,}$", "description": "Infra node ID, e.g. I001" },
+        "type": { "const": "build_profile" },
+        "title": { "type": "string", "description": "Human-readable profile summary" },
+        "data": {
+          "type": "object",
+          "required": ["language", "build_time_cold_seconds", "build_time_incremental_seconds"],
+          "properties": {
+            "language": { "type": "string" },
+            "dependency_count": { "type": "integer" },
+            "build_time_cold_seconds": { "type": "number" },
+            "build_time_incremental_seconds": { "type": "number" },
+            "artifact_size_mb": { "type": "number" },
+            "measured_at": { "type": "string", "format": "date-time" }
+          }
+        },
+        "source_files": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Files that affect build profile, e.g. Cargo.toml, Cargo.lock"
+        },
+        "codebase_hash": { "type": "string", "pattern": "^[a-f0-9]{8}$" },
+        "created_at": { "type": "string", "format": "date-time" },
+        "status": { "enum": ["active", "stale"] }
+      }
+    },
+
+    "cache_verdict_node": {
+      "type": "object",
+      "description": "Success/failure record for a build cache strategy. Written by report-compiler after experiment batches.",
+      "required": ["id", "type", "title", "strategy", "result", "evidence", "created_at", "status"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^I\\d{3,}$", "description": "Infra node ID, e.g. I002" },
+        "type": { "const": "cache_verdict" },
+        "title": { "type": "string" },
+        "strategy": { "enum": ["sccache", "target_copy", "incremental", "none"], "description": "The cache strategy that was tested" },
+        "result": { "enum": ["SUCCESS", "FAILED"] },
+        "evidence": { "type": "string", "description": "One-line evidence summary" },
+        "runs_tested": { "type": "integer", "description": "Number of batch runs this verdict covers" },
+        "failure_count": { "type": "integer", "description": "Number of CACHE_FALLBACK events if FAILED" },
+        "created_at": { "type": "string", "format": "date-time" },
+        "status": { "enum": ["active", "stale"] }
+      }
+    },
+
+    "tool_availability_node": {
+      "type": "object",
+      "description": "Record of a build cache tool detected on this machine. Global scope (project: null in the global index).",
+      "required": ["id", "type", "title", "data", "status"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^I\\d{3,}$", "description": "Infra node ID, e.g. I003" },
+        "type": { "const": "tool_availability" },
+        "title": { "type": "string" },
+        "data": {
+          "type": "object",
+          "required": ["tool", "detected_at"],
+          "properties": {
+            "tool": { "type": "string", "description": "Tool name, e.g. sccache" },
+            "version": { "type": "string" },
+            "path": { "type": "string", "description": "Absolute path to the tool binary" },
+            "detected_at": { "type": "string", "format": "date-time" }
+          }
+        },
         "status": { "enum": ["active", "stale"] }
       }
     },
@@ -104,7 +175,10 @@
         "oneOf": [
           { "$ref": "#/definitions/theory_node" },
           { "$ref": "#/definitions/verdict_node" },
-          { "$ref": "#/definitions/synthesis_node" }
+          { "$ref": "#/definitions/synthesis_node" },
+          { "$ref": "#/definitions/build_profile_node" },
+          { "$ref": "#/definitions/cache_verdict_node" },
+          { "$ref": "#/definitions/tool_availability_node" }
         ]
       }
     },

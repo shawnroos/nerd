@@ -35,13 +35,14 @@ You are invoked in one of two modes:
 - One or more experiment plan paths (e.g., `docs/research/plans/E001-plan.md`)
 - The project's language, test command, and build command from `.claude/nerd.local.md`
 - The project root directory
-- Run all 6 checks. Report results per-experiment plus a global summary.
+- The project DAG path (for reading infra nodes)
+- Run all 7 checks. Report results per-experiment plus a global summary.
 
 **Loop mode** (from `/nerd-loop` Step 2):
 - A research focus, metric command, and scope files (no experiment plans)
 - The project's language, test command, and build command
 - The project root directory
-- Run Checks 1 (data access), 3 (eval command readiness), 4 (tool availability), and 5 (worktree readiness). Skip Check 2 (config wiring) and Check 6 (cross-experiment conflicts) unless the prompt explicitly requests them.
+- Run Checks 1 (data access), 3 (eval command readiness), 4 (tool availability), 5 (worktree readiness), and 7 (build infrastructure — steps 7a-7c and 7f only). Skip Check 2 (config wiring) and Check 6 (cross-experiment conflicts) unless the prompt explicitly requests them.
 
 Detect which mode you're in by whether experiment plan paths are provided. In batch mode, read all plans first.
 
@@ -165,6 +166,112 @@ When multiple experiments will run in parallel, check for conflicts:
 - **File overlap (non-eval module)**: Flag as WARNING. Recommend serializing the conflicting experiments rather than running in parallel.
 - **Exclusive resource conflict** (e.g., both need write access to a database, same port): Flag as BLOCKED. Recommend running one at a time, or assigning different resource instances per worktree.
 - **Baseline invalidation** (experiment A changes a value that experiment B's baseline depends on): Flag as BLOCKED. Recommend running the dependency first, then re-baselining the dependent experiment.
+
+### Check 7: Build Infrastructure
+
+For Rust projects running in batch mode (multiple parallel worktrees), redundant dependency compilation is the dominant time cost. This check profiles the build, detects cache tools, selects a strategy, and configures artifact sharing.
+
+**Applicability:**
+- **Batch mode**: Full Check 7 (steps 7a-7f). This is where parallel worktrees compete for CPU recompiling the same dependencies.
+- **Loop mode**: Steps 7a-7c and 7f only (profile, detect, select, report). If sccache is detected in 7b, report the env var prefix so the loop orchestrator can use it. Skip 7d (cache warming) and 7e (config handoff) — loop runs in a single worktree.
+- **Non-Rust projects**: Report `[OK] {language}: build cache not applicable or already handled by default tooling` and skip. Go's build cache is already global. Python's pip cache is already shared. TypeScript projects benefit from `tsc --incremental` but this is a tsconfig setting, not an infra concern.
+
+#### 7a. Build Profile
+
+Read the project DAG for existing `build_profile` infra nodes. If one exists with `status: "active"` and a fresh `codebase_hash` (compare against current hash of `Cargo.toml` + `Cargo.lock`), use the cached profile. Otherwise, measure:
+
+```bash
+# Count dependencies
+cargo metadata --format-version 1 2>/dev/null | python3 -c "import sys,json; print(len(json.load(sys.stdin)['packages']))"
+
+# Time an incremental check (if project is already built)
+time cargo check 2>&1
+
+# Measure artifact size
+du -sh target/ 2>/dev/null
+```
+
+Record: `dependency_count`, `build_time_cold_seconds`, `build_time_incremental_seconds`, `artifact_size_mb`.
+
+#### 7b. Cache Tool Detection
+
+Check what's available on this machine:
+
+```bash
+# sccache — the primary mechanism for parallel Rust builds
+which sccache 2>/dev/null && sccache --version 2>/dev/null
+
+# Check if RUSTC_WRAPPER is already set (might conflict)
+echo "$RUSTC_WRAPPER"
+
+# Check existing sccache server
+sccache --show-stats 2>/dev/null
+```
+
+If `RUSTC_WRAPPER` is already set to something other than sccache (e.g., `cargo-clippy`), flag as `[WARNING] RUSTC_WRAPPER already set to {value}. sccache would override it. Using target_copy strategy instead.`
+
+#### 7c. Cache Strategy Selection
+
+For Rust projects in batch mode, select the best strategy:
+
+1. **sccache available AND no RUSTC_WRAPPER conflict**: Use sccache. This is a compilation cache daemon safe for concurrent builds. Each worktree compiles independently, but sccache deduplicates identical compilation units across all worktrees.
+
+2. **sccache unavailable**: Use target_copy. Build dependencies once in the main worktree before creating experiment worktrees, then clone `target/` to each worktree using filesystem-level copy-on-write:
+   - macOS (APFS): `cp -c -r target/ worktrees/nerd-{id}/target/`
+   - Linux (btrfs): `cp --reflink=auto -r target/ worktrees/nerd-{id}/target/`
+   - Other: `cp -r target/ worktrees/nerd-{id}/target/`
+
+   **WARNING**: Cargo's `target/debug/.fingerprint/` contains path-dependent hashes. Copying `target/` to a different worktree path may trigger fingerprint invalidation and full recompilation. If this strategy has a FAILED `cache_verdict` in the DAG from a prior run, skip it and report `[SETUP NEEDED] Install sccache for faster parallel builds: cargo install sccache`.
+
+3. **Both unavailable or previously failed**: Report `[SETUP NEEDED] Install sccache for faster parallel builds: cargo install sccache`. Experiments will run with cold builds.
+
+**Read DAG for prior cache_verdict nodes.** If a strategy has `result: "FAILED"` with `status: "active"`, do not select it. Prefer strategies with `result: "SUCCESS"`.
+
+#### 7d. Cache Setup & Warming (batch mode only)
+
+If strategy is **sccache**:
+```bash
+# Start the daemon if not running
+sccache --start-server 2>/dev/null
+
+# Verify it responds
+sccache --show-stats 2>/dev/null
+```
+If the server fails to start, fall back to target_copy or none. Report `[WARNING] sccache server failed to start: {error}. Falling back to cold builds.`
+
+If strategy is **target_copy**:
+```bash
+# Build dependencies in main worktree to populate target/
+{build_command}
+```
+This warming build is typically absorbed by Phase 5.1's eval scaffold creation (which also requires a build).
+
+#### 7e. Configuration Handoff (batch mode only)
+
+Write the cache configuration to `.claude/nerd.local.md` so experiment-executors can read it. Use flat keys matching the file's existing style:
+
+```yaml
+build_cache_strategy: sccache
+build_cache_env: "RUSTC_WRAPPER=sccache"
+build_time_warm_seconds: 12
+build_time_cold_seconds: 180
+```
+
+If strategy is `target_copy` or `none`, set `build_cache_env` to empty string.
+
+#### 7f. Report
+
+Use standard lab-tech status prefixes:
+
+- `[OK] Build cache: sccache active, estimated savings ~{cold - warm}s per worktree ({N} worktrees)`
+- `[FIXED] sccache server started, compilation cache enabled`
+- `[SETUP NEEDED] Install sccache for faster parallel builds: cargo install sccache`
+- `[OK] Build cache: target_copy strategy, dependencies pre-built`
+- `[WARNING] target_copy strategy previously failed (Cargo fingerprint invalidation). Install sccache for reliable caching.`
+- `[OK] Go/Python/TypeScript: build cache not applicable or already handled by default tooling`
+
+In loop mode, if sccache is detected:
+- `[OK] sccache available. Prefix build commands with: RUSTC_WRAPPER=sccache`
 
 ## Scaffolding
 

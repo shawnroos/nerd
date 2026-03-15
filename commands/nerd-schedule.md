@@ -41,6 +41,20 @@ window_hours = (stop - start)
 capacity = experiments_per_hour * window_hours
 ```
 
+**Build cache adjustment:** Check the project's `.claude/nerd.local.md` for `build_cache_strategy` and `build_time_warm_seconds`. If a cache strategy is active (sccache or target_copy), the effective build time per experiment is lower, increasing throughput:
+
+```
+# If build cache is available:
+effective_build_time = build_time_warm_seconds   # from nerd.local.md (e.g., 12s)
+# Otherwise:
+effective_build_time = build_time_seconds         # from hardware profile (e.g., 180s)
+
+# Adjusted rate (if hardware profile has per-experiment timing):
+adjusted_experiments_per_hour = 60 / ((effective_build_time + test_time_seconds + 60) / 60)
+```
+
+Use `adjusted_experiments_per_hour` for capacity calculation when cache config is present. The `+ 60` accounts for agent overhead per experiment. Display the adjustment in the confirmation output.
+
 ## Register in Global Queue
 
 Multiple projects on this machine may schedule nerd. The global queue coordinates:

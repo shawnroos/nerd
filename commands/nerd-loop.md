@@ -108,7 +108,7 @@ Agent(subagent_type="nerd:lab-tech", prompt="
 Validate readiness for a continuous loop on '{research_focus}'. This is loop mode — no experiment plans.
 Metric command: {metric_command}. Scope files: {scope_files}.
 Project root: {cwd}. Language: {lang}. Test command: {test_cmd}. Build command: {build_cmd}.
-Check: data access for the metric command, eval command readiness (verify metric_command runs and produces output), tool availability, and worktree readiness (disk space for many iterations).
+Check: data access for the metric command, eval command readiness (verify metric_command runs and produces output), tool availability, worktree readiness (disk space for many iterations), and build infrastructure (Check 7 steps 7a-7c, 7f — detect sccache availability and report the env var prefix if available).
 Scaffold missing eval infrastructure if needed (you own eval module creation in loop mode).
 Write report to docs/research/lab-readiness-loop-{focus-slug}.md.
 ", run_in_background=false)
@@ -120,6 +120,16 @@ Write report to docs/research/lab-readiness-loop-{focus-slug}.md.
 - **BLOCKED**: Present blockers. Use AskUserQuestion: "Lab readiness check failed: {blocker_summary}. Fix and retry, or abort?"
   - If fix: user fixes the issue, re-run lab-tech.
   - If abort: stop with a clear message. Do not create the loop branch or protocol file.
+
+## Step 2.5: Start Build Cache (if available)
+
+If the lab-tech report indicates sccache is available (Check 7f reports `[OK] sccache available`):
+
+```bash
+sccache --start-server 2>/dev/null
+```
+
+Store the env var prefix `RUSTC_WRAPPER=sccache` for use in the loop iteration commands. This benefits loop mode significantly — hundreds of incremental recompilations across iterations get cached.
 
 ## Step 3: Create the Loop Branch
 
@@ -157,7 +167,9 @@ THE LOOP (run forever):
 
 2. EDIT: Make the change. Keep it focused — one idea per iteration.
 
-3. TEST: Run {test_command}. If tests fail, revert immediately:
+3. TEST: Run {test_command}. If sccache is available (check lab-tech report from Step 2),
+   prefix with RUSTC_WRAPPER=sccache (e.g., RUSTC_WRAPPER=sccache cargo test).
+   If tests fail, revert immediately:
    git reset --hard HEAD
    Log as 'fail (tests)' and try something different.
 
@@ -252,8 +264,9 @@ The loop ends when either:
 - **User interrupts**: manually stops the session
 - **Scheduled window closes**: overnight run ends
 
-1. Read the final protocol file for the experiment log
-2. Compile a loop report at `docs/research/loop-{focus-slug}-report.md`:
+1. Stop sccache if it was started in Step 2.5: `sccache --stop-server 2>/dev/null`
+2. Read the final protocol file for the experiment log
+3. Compile a loop report at `docs/research/loop-{focus-slug}-report.md`:
 
 ```markdown
 ---
