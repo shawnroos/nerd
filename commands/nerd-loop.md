@@ -107,7 +107,7 @@ Before measuring baseline or starting the loop, validate the environment:
 Agent(subagent_type="nerd:lab-tech", prompt="
 Validate readiness for a continuous loop on '{research_focus}'. This is loop mode — no experiment plans.
 Metric command: {metric_command}. Scope files: {scope_files}.
-Project root: {cwd}. Language: {lang}. Test command: {test_cmd}. Build command: {build_cmd}.
+Project root: {cwd}. Language: {lang}. Test command: {test_cmd}. Build command: {build_cmd}. Project DAG path: {dag_path}.
 Check: data access for the metric command, eval command readiness (verify metric_command runs and produces output), tool availability, worktree readiness (disk space for many iterations), and build infrastructure (Check 7 steps 7a-7c, 7f — detect sccache availability and report the env var prefix if available).
 Scaffold missing eval infrastructure if needed (you own eval module creation in loop mode).
 Write report to docs/research/lab-readiness-loop-{focus-slug}.md.

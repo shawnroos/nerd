@@ -228,12 +228,14 @@ For each `planned` experiment:
 ```bash
 git worktree add worktrees/nerd-{entry.id} --detach HEAD
 cd worktrees/nerd-{entry.id} && git checkout -b nerd/{entry.id}
+```
 
-# If target_copy strategy: clone build artifacts using copy-on-write
-# macOS (APFS):
-cp -c -r target/ worktrees/nerd-{entry.id}/target/ 2>/dev/null
+If target_copy strategy, clone build artifacts using copy-on-write (run from project root, NOT from the worktree):
+```bash
+# macOS (APFS) — use absolute paths to avoid ambiguity:
+cp -c -r "$(pwd)/target/" "$(pwd)/worktrees/nerd-{entry.id}/target/" 2>/dev/null
 # Linux (btrfs):
-# cp --reflink=auto -r target/ worktrees/nerd-{entry.id}/target/ 2>/dev/null
+# cp --reflink=auto -r "$(pwd)/target/" "$(pwd)/worktrees/nerd-{entry.id}/target/" 2>/dev/null
 ```
 
 ```

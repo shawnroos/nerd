@@ -181,17 +181,19 @@ For Rust projects running in batch mode (multiple parallel worktrees), redundant
 Read the project DAG for existing `build_profile` infra nodes. If one exists with `status: "active"` and a fresh `codebase_hash` (compare against current hash of `Cargo.toml` + `Cargo.lock`), use the cached profile. Otherwise, measure:
 
 ```bash
-# Count dependencies
-cargo metadata --format-version 1 2>/dev/null | python3 -c "import sys,json; print(len(json.load(sys.stdin)['packages']))"
+# Count dependencies (use --no-deps for speed, count entries in Cargo.lock instead)
+grep -c '^\[\[package\]\]' Cargo.lock 2>/dev/null
 
-# Time an incremental check (if project is already built)
-time cargo check 2>&1
+# Time an incremental check ONLY if target/ already exists (avoids accidental cold build)
+if [ -d target ] && [ -n "$(ls -A target/ 2>/dev/null)" ]; then
+    time cargo check 2>&1
+fi
 
 # Measure artifact size
 du -sh target/ 2>/dev/null
 ```
 
-Record: `dependency_count`, `build_time_cold_seconds`, `build_time_incremental_seconds`, `artifact_size_mb`.
+Record: `dependency_count`, `build_time_incremental_seconds` (null if target/ was empty), `artifact_size_mb`.
 
 #### 7b. Cache Tool Detection
 
