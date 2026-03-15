@@ -130,6 +130,29 @@ Filter plan-reviewer summaries by source file overlap with the experiment's targ
 
 Store: `$PROJECT_SLUG`, `$DAG_PATH`, `$DAG_DIR/index.json`, scanner summary, per-experiment summaries.
 
+**Intern Pre-flight (if enabled):**
+
+```bash
+# Check if intern is configured
+INTERN_ENABLED=$(grep -A1 "intern:" .claude/nerd.local.md 2>/dev/null | grep "enabled: true" | wc -l | tr -d ' ')
+```
+
+If `INTERN_ENABLED == 1`:
+
+1. Read intern config from `.claude/nerd.local.md` (endpoint, model, confidence_threshold, delegation_timeout_seconds, collect_training_data)
+2. Read intern state from `.nerd/intern/state.json` (task modes, accuracy, shadow windows)
+3. Run health check per `Skill(skill="nerd:intern-delegation")` protocol:
+   ```bash
+   INTERN_ENDPOINT=$(grep 'endpoint:' .claude/nerd.local.md | head -1 | awk '{print $2}')
+   BASE_URL="${INTERN_ENDPOINT%/chat/completions}"
+   INTERN_MODEL=$(grep -A5 'intern:' .claude/nerd.local.md | grep 'model:' | head -1 | awk '{print $2}')
+   HEALTH=$(curl -s -m 5 "${BASE_URL}/models" 2>/dev/null)
+   ```
+4. If health check fails: set `INTERN_AVAILABLE=0` for this run, log warning, continue normally
+5. If health check passes: set `INTERN_AVAILABLE=1`, initialize run failure counter to 0
+
+Store: `INTERN_AVAILABLE`, intern config values, task modes from state.json.
+
 **Detect project:**
 ```bash
 cat CLAUDE.md .claude/CLAUDE.md 2>/dev/null | head -50
@@ -148,6 +171,14 @@ If backlog has `proposed` entries and no topic: skip to Phase 3 — the nerd has
 If backlog empty or topic specified: continue to Phase 2.
 
 ## Phase 2: Obsessive Codebase Scan
+
+**Intern delegation (parameter-detection):** If `INTERN_AVAILABLE == 1` and intern task `parameter-detection` mode is `live` or `shadow`, follow the delegation protocol from `Skill(skill="nerd:intern-delegation")`:
+
+- **Live mode:** Call intern endpoint first with the parameter-detection system prompt and source files. If valid response with confidence >= threshold, use intern results as the scan output. If fails or low confidence, fall back to Claude and pass the intern's attempt as context. Increment run failure counter on fallback.
+- **Shadow mode:** Call intern endpoint (non-blocking). Then always call Claude via parameter-scanner. Compare results afterward, log agreement/disagreement to `.nerd/intern/delegation-log.jsonl`.
+- **Disabled:** Skip intern, proceed normally.
+
+If run failure counter > 3, skip remaining intern calls for this run.
 
 Launch the parameter-scanner agent to crawl the codebase:
 
@@ -283,6 +314,17 @@ If a build fails with cache, retry without it and add cache_fallback: true to re
 
 Cap parallel agents at `max_parallel_experiments` from config.
 
+### 5.25: Intern Result Classification
+
+After each experiment-executor completes and writes results JSON, if `INTERN_AVAILABLE == 1` and intern task `result-classification` is `live` or `shadow`:
+
+- Call intern with the results JSON and the result-classification system prompt from `Skill(skill="nerd:intern-delegation")`
+- In live mode: if confidence >= threshold, attach intern's classification to the results for Phase 7
+- In shadow mode: compare against report-compiler's eventual classification in Phase 7.5
+- Log to delegation log
+
+This runs per-experiment as results come in, before merge.
+
 ### 5.3: Merge Completed Experiments
 
 As each agent completes, merge immediately:
@@ -334,6 +376,47 @@ Loop Candidates (ranked by potential):
 ```
 
 If running in scheduled mode (`NERD_SCHEDULED=1`) and the schedule window has time remaining, automatically launch `/nerd-loop` on the top candidate.
+
+## Phase 7.5: Training Data Extraction (if enabled)
+
+If `intern.collect_training_data: true` in config (or `intern.enabled: true`):
+
+Extract training examples from Claude's outputs in this run. For each task type, create JSONL entries:
+
+| Task | Input | Output | Source |
+|------|-------|--------|--------|
+| parameter-detection | Source file contents | parameter-scanner's JSON results | Phase 2 |
+| result-classification | Experiment results JSON | report-compiler's verdict | Phase 7 |
+| context-extraction | Source file + function | parameter-scanner's rationale field | Phase 2 |
+
+**Training example format:**
+```json
+{"task_type": "result-classification", "input": {...}, "output": {...}, "reasoning": "Claude's chain-of-thought explanation", "source_agent": "report-compiler", "created_at": "ISO timestamp", "run_id": "run-YYYY-MM-DD-NNN", "dedup_key": "E001:result-classification"}
+```
+
+**Important:** Include `reasoning` field — capture Claude's chain-of-thought, not just final output. This enables knowledge distillation (not just supervised fine-tuning) when training is implemented in v2.
+
+**Deduplication:** Before appending, check if `dedup_key` already exists in the JSONL file. Use 24-hour time window — same key within 24 hours is a duplicate, otherwise keep (preserves natural output diversity across sessions).
+
+**Crash safety:** Append with write-then-fsync. On read, skip malformed trailing lines.
+
+```bash
+mkdir -p .nerd/intern/training-data
+# Append examples (one per line, validated JSON)
+```
+
+## Phase 7.6: Intern State Update (if enabled)
+
+If `INTERN_AVAILABLE == 1` and delegation occurred this run:
+
+1. Read `.nerd/intern/delegation-log.jsonl` for entries from this `run_id`
+2. For each shadow task: append agreement/disagreement to the rolling window in state.json (keep last 25)
+3. Check promotion: if 20/25 agreements → promote to live, record `promoted_at` timestamp
+4. Check demotion: if accuracy from latest eval drops below mode threshold for 3 consecutive evals → demote one level
+5. Check circuit breaker: if `consecutive_live_failures >= 5` → demote from live to shadow
+6. Update `last_run` stats: delegated count, fallback count, total intern time
+7. Update `lifetime_claude_calls_saved`: increment by number of successful live delegations
+8. Write updated `.nerd/intern/state.json` (single atomic write)
 
 ## Phase 9: Cleanup
 

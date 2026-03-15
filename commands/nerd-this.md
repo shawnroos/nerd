@@ -68,6 +68,29 @@ fi
 
 This closes the `if [ ! -f .claude/nerd.local.md ]` block — the config file and gitignore entry are only created on first run.
 
+**Intern Pre-flight (if enabled):**
+
+```bash
+# Check if intern is configured
+INTERN_ENABLED=$(grep -A1 "intern:" .claude/nerd.local.md 2>/dev/null | grep "enabled: true" | wc -l | tr -d ' ')
+```
+
+If `INTERN_ENABLED == 1`:
+
+1. Read intern config from `.claude/nerd.local.md` (endpoint, model, confidence_threshold, delegation_timeout_seconds, collect_training_data)
+2. Read intern state from `.nerd/intern/state.json` (task modes, accuracy, shadow windows)
+3. Run health check per `Skill(skill="nerd:intern-delegation")` protocol:
+   ```bash
+   INTERN_ENDPOINT=$(grep 'endpoint:' .claude/nerd.local.md | head -1 | awk '{print $2}')
+   BASE_URL="${INTERN_ENDPOINT%/chat/completions}"
+   INTERN_MODEL=$(grep -A5 'intern:' .claude/nerd.local.md | grep 'model:' | head -1 | awk '{print $2}')
+   HEALTH=$(curl -s -m 5 "${BASE_URL}/models" 2>/dev/null)
+   ```
+4. If health check fails: set `INTERN_AVAILABLE=0` for this run, log warning, continue normally
+5. If health check passes: set `INTERN_AVAILABLE=1`, initialize run failure counter to 0
+
+Store: `INTERN_AVAILABLE`, intern config values, task modes from state.json.
+
 **Detect project:**
 ```bash
 cat CLAUDE.md .claude/CLAUDE.md 2>/dev/null | head -50
@@ -167,6 +190,14 @@ Use AskUserQuestion to confirm. If the user wants to adjust:
 - They can type a topic to re-run scope resolution with a narrower focus
 
 ## Phase 3: Thematic Parameter Scan
+
+**Intern delegation (parameter-detection):** If `INTERN_AVAILABLE == 1` and intern task `parameter-detection` mode is `live` or `shadow`, follow the delegation protocol from `Skill(skill="nerd:intern-delegation")`:
+
+- **Live mode:** Call intern endpoint first with source files from the scoped file list. If valid response with confidence >= threshold, use intern results as input to theming. If fails or low confidence, fall back to Claude and pass the intern's attempt as context. Increment run failure counter on fallback.
+- **Shadow mode:** Call intern endpoint (non-blocking). Then always call Claude via context-scanner. Compare results afterward, log agreement/disagreement to `.nerd/intern/delegation-log.jsonl`.
+- **Disabled:** Skip intern, proceed normally.
+
+If run failure counter > 3, skip remaining intern calls for this run.
 
 Launch the context-scanner agent with the confirmed scope:
 
@@ -392,6 +423,26 @@ Loop Candidates (ranked by potential):
 ```
 
 If running in scheduled mode (`NERD_SCHEDULED=1`) and the schedule window has time remaining, automatically launch `/nerd-loop` on the top candidate.
+
+## Phase 10.5: Training Data Extraction (if enabled)
+
+If `intern.collect_training_data: true` in config (or `intern.enabled: true`):
+
+Extract training examples from Claude's outputs in this run. Same format and protocol as `/nerd` Phase 7.5 — see `Skill(skill="nerd:intern-delegation")` for the delegation protocol and training data format.
+
+| Task | Input | Output | Source |
+|------|-------|--------|--------|
+| parameter-detection | Source file contents | context-scanner's JSON results | Phase 3 |
+| result-classification | Experiment results JSON | report-compiler's verdict | Phase 10 |
+| context-extraction | Source file + function | context-scanner's rationale field | Phase 3 |
+
+Include `reasoning` field — capture Claude's chain-of-thought. Dedup with 24-hour time window. Append to `.nerd/intern/training-data/{task_type}.jsonl`.
+
+## Phase 10.6: Intern State Update (if enabled)
+
+If `INTERN_AVAILABLE == 1` and delegation occurred this run:
+
+Same protocol as `/nerd` Phase 7.6 — read delegation log for this run_id, update shadow windows, check promotion/demotion/circuit breaker, write updated `.nerd/intern/state.json` atomically.
 
 ## Error Handling
 
