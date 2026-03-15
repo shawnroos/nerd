@@ -281,7 +281,9 @@ Before spinning up expensive experiment agents, validate that the lab is ready.
 Agent(subagent_type="nerd:lab-tech", prompt="
 Validate readiness for experiments: {comma-separated plan paths}.
 Project root: {cwd}. Language: {lang}. Test command: {test_cmd}. Build command: {build_cmd}.
-Run all checks: data access, config wiring, eval commands, tool availability, worktree readiness, and cross-experiment conflicts.
+Project DAG path: {dag_path}. Max parallel experiments: {max_parallel_experiments}.
+Run all checks: data access, config wiring, eval commands, tool availability, worktree readiness, cross-experiment conflicts, and build infrastructure (Check 7).
+Check 7: Profile the build, detect sccache, select cache strategy, set up caching, write build_cache config to .claude/nerd.local.md. Read infra nodes from the DAG for prior cache verdicts.
 Scaffold any missing infrastructure (export scripts, test fixtures). Do NOT create the eval module — Phase 8.1 handles that.
 Write report to docs/research/lab-readiness-batch-{timestamp}.md.
 ", run_in_background=false)
@@ -322,6 +324,9 @@ Worktree: {path}. Language: {lang}. Tests: {test_cmd}.
 Put code in src/eval/{entry.id}.rs (or equivalent).
 Add to existing EvalAction enum. Commit conventionally.
 Write results to docs/research/results/{entry.id}-results.json.
+Before building, read .claude/nerd.local.md for build_cache_strategy and build_cache_env.
+If build_cache_env is set, prefix all cargo/build commands with it inline (e.g., RUSTC_WRAPPER=sccache cargo build).
+If a build fails with cache, retry without it and add cache_fallback: true to results JSON.
 ", run_in_background=true)
 ```
 
@@ -348,7 +353,7 @@ Use `/loop 5m` to check on background agents. Merge experiments as they complete
 ## Phase 10: Deliver Findings
 
 ```
-Agent(subagent_type="nerd:report-compiler", prompt="Compile findings from docs/research/results/ into docs/research/findings.md and per-experiment reports.", run_in_background=false)
+Agent(subagent_type="nerd:report-compiler", prompt="Compile findings from docs/research/results/ into docs/research/findings.md and per-experiment reports. Write theories, verdicts, and edges to project DAG: {dag_path}.", run_in_background=false)
 ```
 
 Present summary. Clean up remaining worktrees:
@@ -361,7 +366,7 @@ git worktree prune
 After findings are compiled, run the loop-scout to identify what deserves deep iteration:
 
 ```
-Agent(subagent_type="nerd:loop-scout", prompt="Analyze research findings in docs/research/ and the backlog in .claude/nerd.local.md. Identify the best candidates for /nerd-loop continuous improvement. Write recommendations to docs/research/loop-candidates.md.", run_in_background=false)
+Agent(subagent_type="nerd:loop-scout", prompt="Analyze research findings in docs/research/ and the backlog in .claude/nerd.local.md. Project DAG: {dag_path}. Global index: {dag_dir}/index.json. Identify the best candidates for /nerd-loop continuous improvement. Write synthesis nodes to global index when 3+ verdicts share a pattern. Write recommendations to docs/research/loop-candidates.md.", run_in_background=false)
 ```
 
 Present the scout's recommendations:
