@@ -83,7 +83,9 @@ fi
 # Verify project_path matches current directory (detect slug collisions)
 stored_path=$(python3 -c "import json; print(json.load(open('$DAG_PATH')).get('project_path',''))" 2>/dev/null)
 if [ -n "$stored_path" ] && [ "$stored_path" != "$PWD" ]; then
-    echo "WARNING: DAG file $DAG_PATH was created for $stored_path but current project is $PWD. Slug collision detected."
+    echo "ERROR: DAG slug collision — $DAG_PATH belongs to $stored_path, not $PWD. Cannot use the same DAG for different projects. Rename one project directory or manually move the DAG file."
+    # Do not proceed with DAG operations — set dag_path to empty so agents skip DAG features
+    DAG_PATH=""
 fi
 ```
 
@@ -239,7 +241,7 @@ Use `/loop 5m` to check on background agents. Merge experiments as they complete
 ## Phase 7: Deliver Findings
 
 ```
-Agent(subagent_type="nerd:report-compiler", prompt="Compile findings from docs/research/results/ into docs/research/findings.md and per-experiment reports. Write theories, verdicts, and edges to project DAG: {DAG_PATH}.", run_in_background=false)
+Agent(subagent_type="nerd:report-compiler", prompt="Compile findings from docs/research/results/ into docs/research/findings.md and per-experiment reports. Write theories, verdicts, and edges to project DAG: {dag_path}.", run_in_background=false)
 ```
 
 Present summary. Clean up remaining worktrees:
@@ -252,7 +254,7 @@ git worktree prune
 After findings are compiled, run the loop-scout to identify what deserves deep iteration:
 
 ```
-Agent(subagent_type="nerd:loop-scout", prompt="Analyze research findings in docs/research/ and the backlog in .claude/nerd.local.md. Project DAG: {DAG_PATH}. Global index: {DAG_DIR}/index.json. Identify the best candidates for /nerd-loop continuous improvement. Write synthesis nodes to global index when 3+ verdicts share a pattern. Write recommendations to docs/research/loop-candidates.md.", run_in_background=false)
+Agent(subagent_type="nerd:loop-scout", prompt="Analyze research findings in docs/research/ and the backlog in .claude/nerd.local.md. Project DAG: {dag_path}. Global index: {dag_dir}/index.json. Identify the best candidates for /nerd-loop continuous improvement. Write synthesis nodes to global index when 3+ verdicts share a pattern. Write recommendations to docs/research/loop-candidates.md.", run_in_background=false)
 ```
 
 Present the scout's recommendations:

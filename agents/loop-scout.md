@@ -2,7 +2,7 @@
 name: loop-scout
 model: sonnet
 color: magenta
-tools: ["Read", "Write", "Glob", "Grep"]
+tools: ["Read", "Write", "Glob", "Grep", "Bash"]
 description: "Analyzes nerd research findings, experiment reports, and backlog proposals to identify the best candidates for deep /nerd-loop continuous improvement. Looks for areas with high improvement potential, measurable metrics, and clear scope boundaries. Use after /nerd completes or when deciding what to loop on."
 whenToUse: |
   Use this agent to identify which research findings deserve deep continuous improvement.
@@ -186,10 +186,10 @@ Note: Synthesis S001 from projects-jeans found that "LLM rerankers add latency w
 
 Follow the same crash-safe write protocol as report-compiler:
 
-1. `cp "{index_path}" "{index_path}.bak"`
-2. Write complete updated JSON to `{index_path}.tmp`
-3. Validate: `python3 -c "import json; json.load(open('{index_path}.tmp'))"`
-4. If valid: `mv "{index_path}.tmp" "{index_path}"`
+1. `cp "{global_index_path}" "{global_index_path}.bak"`
+2. Write complete updated JSON to `{global_index_path}.tmp`
+3. Validate: `python3 -c "import json; json.load(open('{global_index_path}.tmp'))" 2>/dev/null`
+4. If valid: `mv "{global_index_path}.tmp" "{global_index_path}"`
 5. If invalid: remove `.tmp`, report error, continue without synthesis write
 
 ### Output Synthesis Summary

@@ -96,7 +96,7 @@
 
   "type": "object",
   "description": "A DAG file — either a per-project file or the global index.",
-  "required": ["nodes", "version"],
+  "required": ["nodes", "edges", "version"],
   "properties": {
     "nodes": {
       "type": "array",

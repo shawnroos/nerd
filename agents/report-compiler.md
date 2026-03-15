@@ -229,7 +229,7 @@ For each verdict, create an edge linking it to its theory:
 
 - Use `supports` when result is SUPPORTED
 - Use `refutes` when result is REFUTED
-- For INCONCLUSIVE, create an edge with type `supports` and reason noting the inconclusive nature
+- For INCONCLUSIVE, do NOT create an edge — the verdict node's `result: "INCONCLUSIVE"` is sufficient. Creating a `supports` edge for inconclusive results would cause false matches in plan-reviewer.
 
 If a verdict's findings suggest a new hypothesis, create a `spawned` edge:
 
