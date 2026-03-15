@@ -75,21 +75,7 @@ This closes the `if [ ! -f .claude/nerd.local.md ]` block — the config file an
 INTERN_ENABLED=$(grep -A1 "intern:" .claude/nerd.local.md 2>/dev/null | grep "enabled: true" | wc -l | tr -d ' ')
 ```
 
-If `INTERN_ENABLED == 1`:
-
-1. Read intern config from `.claude/nerd.local.md` (endpoint, model, confidence_threshold, delegation_timeout_seconds, collect_training_data)
-2. Read intern state from `.nerd/intern/state.json` (task modes, accuracy, shadow windows)
-3. Run health check per `Skill(skill="nerd:intern-delegation")` protocol:
-   ```bash
-   INTERN_ENDPOINT=$(grep 'endpoint:' .claude/nerd.local.md | head -1 | awk '{print $2}')
-   BASE_URL="${INTERN_ENDPOINT%/chat/completions}"
-   INTERN_MODEL=$(grep -A5 'intern:' .claude/nerd.local.md | grep 'model:' | head -1 | awk '{print $2}')
-   HEALTH=$(curl -s -m 5 "${BASE_URL}/models" 2>/dev/null)
-   ```
-4. If health check fails: set `INTERN_AVAILABLE=0` for this run, log warning, continue normally
-5. If health check passes: set `INTERN_AVAILABLE=1`, initialize run failure counter to 0
-
-Store: `INTERN_AVAILABLE`, intern config values, task modes from state.json.
+If `INTERN_ENABLED == 1`: Execute the Pre-Run Health Check defined in `Skill(skill="nerd:intern-delegation")`, Phase 0. Read intern config from `.claude/nerd.local.md` and state from `.nerd/intern/state.json`. If state.json exists but fails JSON parsing, treat as if intern is not configured for this run and log warning. Store the resulting `INTERN_AVAILABLE`, config values, and task modes.
 
 **Detect project:**
 ```bash
@@ -191,13 +177,7 @@ Use AskUserQuestion to confirm. If the user wants to adjust:
 
 ## Phase 3: Thematic Parameter Scan
 
-**Intern delegation (parameter-detection):** If `INTERN_AVAILABLE == 1` and intern task `parameter-detection` mode is `live` or `shadow`, follow the delegation protocol from `Skill(skill="nerd:intern-delegation")`:
-
-- **Live mode:** Call intern endpoint first with source files from the scoped file list. If valid response with confidence >= threshold, use intern results as input to theming. If fails or low confidence, fall back to Claude and pass the intern's attempt as context. Increment run failure counter on fallback.
-- **Shadow mode:** Call intern endpoint (non-blocking). Then always call Claude via context-scanner. Compare results afterward, log agreement/disagreement to `.nerd/intern/delegation-log.jsonl`.
-- **Disabled:** Skip intern, proceed normally.
-
-If run failure counter > 3, skip remaining intern calls for this run.
+**Intern delegation (parameter-detection):** If `INTERN_AVAILABLE == 1`, delegate per `Skill(skill="nerd:intern-delegation")` — check task mode, call intern if live/shadow, validate, gate on confidence, log to delegation log. If run failure counter > 3, skip remaining intern calls.
 
 Launch the context-scanner agent with the confirmed scope:
 

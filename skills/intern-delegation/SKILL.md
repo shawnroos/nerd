@@ -75,16 +75,14 @@ RESPONSE=$(curl -s -m 30 --connect-timeout 3 \
 | result-classification | 512 | 0 |
 | context-extraction | 1024 | 0 |
 
-## Layered Timeouts
+## Timeouts
 
 | Layer | Timeout | Purpose |
 |-------|---------|---------|
 | Connection | 3 seconds | Detect endpoint down fast |
-| First token (TTFT) | 15 seconds | Detect stuck model/OOM |
 | Total request | 30 seconds | Prevent runaway generation |
-| Per-run budget | 300 seconds | Cap total intern cost per run |
 
-The `--connect-timeout 3` and `-m 30` curl flags handle connection and total. TTFT is checked by monitoring whether any data arrives within 15 seconds of connection.
+The `--connect-timeout 3` and `-m 30` curl flags handle both. If the intern is slow, it will hit the 30s timeout and count toward the failure budget.
 
 ## Output Validation
 
@@ -130,7 +128,7 @@ This creates higher-quality training data (Claude correcting specific intern err
 
 Track failures per run. If the intern fails back to Claude more than 3 times in a single run, disable delegation for the remainder of that run. This prevents cascading latency from a misbehaving model.
 
-**Runtime circuit breaker:** If a task in `live` mode fails back to Claude 5 consecutive runs (tracked in state.json), auto-demote to `shadow`.
+Persistent failure is handled by the shadow window's demotion criteria — if accuracy drops below threshold, the task demotes automatically. No separate circuit breaker needed.
 
 ## Delegation Logging
 
@@ -184,7 +182,6 @@ intern:
       "mode": "shadow",
       "accuracy": 0.76,
       "shadow_window": [true, true, false, true, true],
-      "consecutive_live_failures": 0,
       "promoted_at": null
     }
   },

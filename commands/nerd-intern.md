@@ -57,6 +57,10 @@ which llama-server 2>/dev/null || which llama.cpp 2>/dev/null
 
 ### Step 3: Get Model and Endpoint
 
+**Autonomous mode (`NERD_SCHEDULED=1` or CLI arguments provided):**
+If `$ARGUMENTS` contains `--provider` and `--model` flags (e.g., `/nerd-intern setup --provider ollama --model qwen3.5-4b-q4`), use those directly. Otherwise, auto-detect: pick the first available provider from Step 2, select the recommended model for the detected RAM tier, use the provider's default endpoint. Log the auto-selected configuration and proceed without interaction.
+
+**Interactive mode (default):**
 If no existing intern config in `.claude/nerd.local.md`, use AskUserQuestion:
 
 "Which local LLM provider and model are you using?"
@@ -95,7 +99,15 @@ If the endpoint is not reachable, help the user start their provider:
 
 ### Step 5: Run Aptitude Test
 
-Invoke the intern-evaluator agent:
+**Check benchmark availability first:**
+```bash
+ls ${CLAUDE_PLUGIN_ROOT}/skills/intern-training/benchmark-seed/ 2>/dev/null
+ls .nerd/intern/benchmark/ 2>/dev/null
+```
+
+If neither seed benchmarks nor project benchmarks exist: "No benchmark data available yet. The aptitude test needs examples to score against. Run `/nerd` first to generate training examples from your codebase, then re-run `/nerd-intern setup`." In scheduled mode, log this and exit setup gracefully (intern remains disabled).
+
+If benchmarks are available, invoke the intern-evaluator agent:
 
 ```
 Agent(subagent_type="nerd:intern-evaluator", prompt="
@@ -130,21 +142,18 @@ Create `.nerd/intern/state.json` with initial state from aptitude test results:
       "mode": "{mode from aptitude test}",
       "accuracy": {score},
       "shadow_window": [],
-      "consecutive_live_failures": 0,
       "promoted_at": null
     },
     "result-classification": {
       "mode": "{mode from aptitude test}",
       "accuracy": {score},
       "shadow_window": [],
-      "consecutive_live_failures": 0,
       "promoted_at": null
     },
     "context-extraction": {
       "mode": "{mode from aptitude test}",
       "accuracy": {score},
       "shadow_window": [],
-      "consecutive_live_failures": 0,
       "promoted_at": null
     }
   },
@@ -235,7 +244,9 @@ If intern is not configured: "No intern configured. Run `/nerd-intern setup` to 
 
 ### Confirm
 
-Use AskUserQuestion: "Reset your intern? This wipes all task progress and state. Training data is preserved."
+In scheduled mode (`NERD_SCHEDULED=1`): skip confirmation, proceed directly.
+
+In interactive mode: Use AskUserQuestion: "Reset your intern? This wipes all task progress and state. Training data is preserved."
 
 Options:
 1. Yes, reset everything
