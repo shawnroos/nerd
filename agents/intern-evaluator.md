@@ -1,6 +1,6 @@
 ---
 name: intern-evaluator
-model: sonnet
+model: haiku
 color: purple
 tools: ["Read", "Bash", "Glob", "Grep"]
 description: "Runs aptitude tests and ongoing evaluation of the local LLM intern. Calls the intern endpoint with benchmark examples for each task type (parameter-detection, result-classification, context-extraction), scores against expected outputs, and returns structured results with accuracy per task and mode recommendations. Use during /nerd-intern setup or when re-evaluating intern capability."
