@@ -12,19 +12,24 @@ The orchestrator (not individual agents) handles all intern delegation. Agents s
 Run once at the start of every `/nerd` or `/nerd-this` run when `intern.enabled: true`.
 
 ```bash
-# Health check: GET /v1/models with 5-second timeout
-INTERN_ENDPOINT=$(cat .claude/nerd.local.md | grep 'endpoint:' | head -1 | awk '{print $2}')
-INTERN_MODEL=$(cat .claude/nerd.local.md | grep 'model:' | head -1 | awk '{print $2}')
-BASE_URL="${INTERN_ENDPOINT%/chat/completions}"
+INTERN_PROVIDER=$(grep -A10 'intern:' .claude/nerd.local.md 2>/dev/null | grep 'provider:' | head -1 | awk '{print $2}')
+INTERN_MODEL=$(grep -A10 'intern:' .claude/nerd.local.md 2>/dev/null | grep 'model:' | head -1 | awk '{print $2}')
 
-HEALTH=$(curl -s -m 5 "${BASE_URL}/models" 2>/dev/null)
+if [ "$INTERN_PROVIDER" = "ollama" ] || [ -z "$INTERN_PROVIDER" ]; then
+  # Ollama: use native /api/tags endpoint
+  HEALTH=$(curl -s -m 5 "http://localhost:11434/api/tags" 2>/dev/null)
+else
+  # Other providers: use OpenAI-compatible endpoint
+  INTERN_ENDPOINT=$(grep -A10 'intern:' .claude/nerd.local.md 2>/dev/null | grep 'endpoint:' | head -1 | awk '{print $2}')
+  HEALTH=$(curl -s -m 5 "${INTERN_ENDPOINT%/chat/completions}/models" 2>/dev/null)
+fi
 ```
 
 **Pass criteria:**
 1. HTTP response received within 5 seconds
-2. Response is valid JSON with a `data` array
-3. At least one model in the array
-4. Model name in response matches `intern.model` in config
+2. Response is valid JSON
+3. The configured model is available (for Ollama: appears in `/api/tags` model list)
+4. For Ollama: model name match is substring-based (e.g., `qwen3:4b` matches `qwen3:4b`)
 
 **If health check fails:** Disable all delegation for this run. Log: `"intern_health_check": "failed"` to delegation log. Continue run normally (Claude handles everything).
 
@@ -52,37 +57,96 @@ If mode == "disabled":
 
 ## Calling the Intern
 
+**Provider-aware calling.** Different providers have different APIs. The protocol adapts based on the `provider` field in config.
+
+### Ollama (default for most users)
+
+Use Ollama's **native API** (`/api/chat`), NOT the OpenAI-compatible endpoint. Required because:
+- Qwen3 and other thinking models use reasoning tokens that consume the entire token budget via the OpenAI endpoint
+- The native API supports `"think": false` to disable the reasoning field (though models may still reason in content — see Response Parsing below)
+
 ```bash
-RESPONSE=$(curl -s -m 30 --connect-timeout 3 \
+RESPONSE=$(curl -s -m 180 --connect-timeout 5 \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer ${NERD_INTERN_API_KEY:-EMPTY}" \
   -d '{
     "model": "{intern.model}",
     "messages": [
       {"role": "system", "content": "{task-specific system prompt}"},
-      {"role": "user", "content": "{task input as JSON}"}
+      {"role": "user", "content": "{task input}"}
     ],
-    "temperature": 0,
-    "max_tokens": {task-specific limit}
+    "stream": false,
+    "think": false,
+    "options": {"temperature": 0, "num_predict": 4096}
   }' \
-  "{intern.endpoint}")
+  "http://localhost:11434/api/chat")
+
+# Parse: extract content from native response
+CONTENT=$(echo "$RESPONSE" | python3 -c "import json,sys; print(json.load(sys.stdin)['message']['content'])")
 ```
 
-**Max tokens by task:**
-| Task | max_tokens | temperature |
-|------|-----------|-------------|
-| parameter-detection | 2048 | 0 |
-| result-classification | 512 | 0 |
-| context-extraction | 1024 | 0 |
+### Other providers (MLX-LM, llama.cpp, vLLM)
 
-## Timeouts
+Use the OpenAI-compatible endpoint:
+
+```bash
+RESPONSE=$(curl -s -m 180 --connect-timeout 5 \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer ${NERD_INTERN_API_KEY:-EMPTY}" \
+  -d '{
+    "model": "{intern.model}",
+    "messages": [...],
+    "temperature": 0,
+    "max_tokens": 4096
+  }' \
+  "{intern.endpoint}/v1/chat/completions")
+```
+
+### Response Parsing (Critical — learned from testing)
+
+**Small models cannot reliably return pure JSON.** Even with `think: false` and explicit "return ONLY JSON" instructions, models like Qwen3 produce reasoning text with JSON embedded. The delegation protocol MUST:
+
+1. **Strip `<think>` tags:** `re.sub(r'<think>.*?</think>', '', content, flags=re.DOTALL)`
+2. **Extract JSON from reasoning text:** Try parsing the full content as JSON first. If that fails, search for JSON objects containing the expected key (e.g., `"parameters"`, `"classification"`, `"summary"`) using regex.
+3. **Fallback extraction:** For parameter-detection, if no JSON found, search for parameter names mentioned in the raw text.
+
+```python
+import re, json
+
+def extract_json(text, expected_key):
+    text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL).strip()
+    try: return json.loads(text)
+    except: pass
+    # Find outermost JSON object
+    start = text.find('{')
+    if start >= 0:
+        depth = 0
+        for i in range(start, len(text)):
+            if text[i] == '{': depth += 1
+            elif text[i] == '}': depth -= 1
+            if depth == 0:
+                try: return json.loads(text[start:i+1])
+                except: break
+    return None
+```
+
+### Timeouts
 
 | Layer | Timeout | Purpose |
 |-------|---------|---------|
-| Connection | 3 seconds | Detect endpoint down fast |
-| Total request | 30 seconds | Prevent runaway generation |
+| Connection | 5 seconds | Detect endpoint down (allow model loading) |
+| Total request | 180 seconds | Allow cold model loading + thinking + generation |
 
-The `--connect-timeout 3` and `-m 30` curl flags handle both. If the intern is slow, it will hit the 30s timeout and count toward the failure budget.
+**Why 180s, not 30s:** Testing showed 60-180s per call on a 4B model on M1 Pro. First calls are slowest (model loading). The failure budget (3 per run) prevents cascading delays even with generous timeouts.
+
+### Latency expectations by hardware
+
+| Hardware | 4B model | 1B model |
+|----------|---------|---------|
+| M1 Pro 16GB | 60-180s | 20-60s |
+| M2/M3/M4 32GB+ | 20-60s | 10-30s |
+| CUDA 16GB+ | 10-30s | 5-15s |
+
+Shadow mode (background) tolerates high latency. Live mode requires <30s per call to be practical — may need a smaller model or faster hardware.
 
 ## Output Validation
 
@@ -167,10 +231,10 @@ After all phases complete, the orchestrator reads the delegation log for this ru
 ```yaml
 intern:
   enabled: true
-  model: qwen3.5-4b-q4
-  endpoint: http://localhost:11434/v1/chat/completions
+  provider: ollama                   # ollama, mlx-lm, llama-cpp, vllm
+  model: qwen3:4b
+  endpoint: http://localhost:11434   # base URL — Ollama uses /api/chat, others use /v1/chat/completions
   confidence_threshold: 0.8
-  delegation_timeout_seconds: 30
   collect_training_data: true
 ```
 
