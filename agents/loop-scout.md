@@ -140,7 +140,7 @@ cat {global_index_path} 2>/dev/null
 
 ### Detect Synthesis Patterns
 
-Group verdict nodes by their `tags`. If **3 or more verdicts** in the same tag cluster reach the same conclusion (e.g., all SUPPORTED or all REFUTED with similar evidence themes), generate a synthesis node.
+Group verdict nodes by the `tags` of their linked theory (look up each verdict's `theory_id` to find the theory node's `tags` array). If **3 or more verdicts** in the same tag cluster reach the same conclusion (e.g., all SUPPORTED or all REFUTED with similar evidence themes), generate a synthesis node.
 
 Example: 3 verdicts across experiments all conclude "data quality is the bottleneck, not thresholds" → synthesis: "Data coverage dominates threshold tuning in entity resolution."
 
