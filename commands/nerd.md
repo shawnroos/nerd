@@ -42,9 +42,18 @@ fi
 
 Create `.claude/nerd.local.md` with defaults:
 
+Derive `max_parallel_experiments` from the hardware profile:
+```bash
+memory_gb=$(grep "memory_gb" ~/.claude/plugins/nerd/hardware-profile.yaml 2>/dev/null | awk '{print $2}')
+# Reserve 4GB for interactive use, 2 per experiment, clamp to 1-6
+max_parallel=$(( (${memory_gb:-16} - 4) / 2 ))
+[ "$max_parallel" -lt 1 ] && max_parallel=1
+[ "$max_parallel" -gt 6 ] && max_parallel=6
+```
+
 ```yaml
 ---
-max_parallel_experiments: 4
+max_parallel_experiments: {max_parallel}
 merge_strategy: auto
 auto_cleanup_worktrees: true
 language: {lang}

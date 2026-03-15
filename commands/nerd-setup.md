@@ -32,14 +32,13 @@ nvidia-smi --query-gpu=name,memory.total --format=csv,noheader 2>/dev/null
 
 Classify the hardware:
 
-| Hardware | Training Variant | Expected Performance |
-|----------|-----------------|---------------------|
-| Apple Silicon M1 (16GB) | autoresearch-mlx | ~3-4 experiments/hour |
-| Apple Silicon M1 Pro/Max (32GB+) | autoresearch-mlx | ~6-8 experiments/hour |
-| Apple Silicon M2/M3/M4 | autoresearch-mlx | ~8-12 experiments/hour |
-| NVIDIA GPU (24GB+) | autoresearch (original) | ~8-12 experiments/hour |
-| NVIDIA GPU (80GB+, H100) | autoresearch (original) | ~12+ experiments/hour |
-| No GPU / CPU only | Skip LLM training | Codebase experiments only |
+| Hardware | Training Variant |
+|----------|-----------------|
+| Apple Silicon (any) | autoresearch-mlx |
+| NVIDIA GPU (24GB+) | autoresearch (original) |
+| No GPU / CPU only | Skip LLM training — codebase experiments only |
+
+Note: actual experiments-per-hour is measured during calibration (Step 3), not estimated from chip model. Different workloads (fast test suites vs heavy compilation) vary too much for pre-calibration estimates to be useful.
 
 ## Step 2: Install Nerd Training
 
