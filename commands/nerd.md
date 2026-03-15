@@ -62,6 +62,63 @@ grep -q "nerd.local.md" .gitignore 2>/dev/null || echo ".claude/nerd.local.md" >
 
 This means `/nerd-setup` is only needed once per machine (hardware calibration). Every new project auto-inits on first `/nerd` run.
 
+**Auto-init Research DAG (per-project):**
+
+```bash
+PROJECT_SLUG=$(echo "$(basename "$(dirname "$PWD")")-$(basename "$PWD")" | tr '[:upper:]' '[:lower:]' | tr ' ' '-')
+DAG_DIR="$HOME/.claude/plugins/nerd/dag"
+DAG_PATH="$DAG_DIR/projects/$PROJECT_SLUG.json"
+
+# Create project DAG if missing
+if [ ! -f "$DAG_PATH" ]; then
+    mkdir -p "$DAG_DIR/projects"
+    echo '{"nodes":[],"edges":[],"project":"'"$PROJECT_SLUG"'","project_path":"'"$PWD"'","version":1}' > "$DAG_PATH"
+fi
+
+# Create global index if missing (in case nerd-setup wasn't run)
+if [ ! -f "$DAG_DIR/index.json" ]; then
+    echo '{"nodes":[],"edges":[],"version":1}' > "$DAG_DIR/index.json"
+fi
+
+# Verify project_path matches current directory (detect slug collisions)
+stored_path=$(python3 -c "import json; print(json.load(open('$DAG_PATH')).get('project_path',''))" 2>/dev/null)
+if [ -n "$stored_path" ] && [ "$stored_path" != "$PWD" ]; then
+    echo "WARNING: DAG file $DAG_PATH was created for $stored_path but current project is $PWD. Slug collision detected."
+fi
+```
+
+**Compute DAG staleness and generate summaries:**
+
+Read the project DAG. For each active node with `source_files`, hash the current file contents and compare against `codebase_hash`. If the hash differs or any source file is deleted, mark the node `status: "stale"`. Write the updated DAG back using the crash-safe protocol (backup → tmp → validate → rename).
+
+Then generate two markdown summaries for downstream agents:
+
+**Scanner summary** (for Phase 2 parameter-scanner):
+```markdown
+## Prior Research (from DAG)
+
+### Skip These Parameters (already resolved):
+- {file}:{line} `{param}` — {result} in {experiment}: "{evidence}". Recommendation: {rec}.
+
+### Re-test These (stale — source files changed):
+- {file}:{line} `{param}` — tested in {experiment} but source file changed. Previous: {result}.
+
+### Open Hypotheses (untested theories from prior runs):
+- {theory_id}: "{title}" — spawned from {verdict_id}, no experiment yet.
+```
+
+**Per-experiment plan-reviewer summaries** (for Phase 3, one per experiment):
+```markdown
+## Prior Theories on {parameter} ({file}:{line})
+
+- {theory_id} ({result}): "{title}" — {evidence}
+- Edge: {verdict_id} spawned {theory_id} — "{reason}"
+```
+
+Filter plan-reviewer summaries by source file overlap with the experiment's target files. Include edge context (spawned relationships).
+
+Store: `$PROJECT_SLUG`, `$DAG_PATH`, `$DAG_DIR/index.json`, scanner summary, per-experiment summaries.
+
 **Detect project:**
 ```bash
 cat CLAUDE.md .claude/CLAUDE.md 2>/dev/null | head -50
@@ -84,7 +141,7 @@ If backlog empty or topic specified: continue to Phase 2.
 Launch the parameter-scanner agent to crawl the codebase:
 
 ```
-Agent(subagent_type="nerd:parameter-scanner", prompt="Scan {cwd} for tunable parameters. Topic: {user_topic or 'all'}. Return structured JSON list.", run_in_background=false)
+Agent(subagent_type="nerd:parameter-scanner", prompt="Scan {cwd} for tunable parameters. Topic: {user_topic or 'all'}. {scanner_dag_summary}. Return structured JSON list.", run_in_background=false)
 ```
 
 Present findings. Use AskUserQuestion: "The nerd found {N} research opportunities. Which ones should it investigate?"
@@ -96,7 +153,7 @@ Add selections to backlog.
 For each `proposed` entry, launch plan-reviewer agents **in parallel**:
 
 ```
-Agent(subagent_type="nerd:plan-reviewer", prompt="Create experiment plan for {entry.title}. Parameter: {entry.parameter} at {entry.file}:{entry.line}. Write to docs/research/plans/{entry.id}-plan.md.", run_in_background=true)
+Agent(subagent_type="nerd:plan-reviewer", prompt="Create experiment plan for {entry.title}. Parameter: {entry.parameter} at {entry.file}:{entry.line}. {per_experiment_dag_summary}. Write to docs/research/plans/{entry.id}-plan.md.", run_in_background=true)
 ```
 
 Update status: `proposed` → `planned`. Wait for all plan agents.
@@ -182,7 +239,7 @@ Use `/loop 5m` to check on background agents. Merge experiments as they complete
 ## Phase 7: Deliver Findings
 
 ```
-Agent(subagent_type="nerd:report-compiler", prompt="Compile findings from docs/research/results/ into docs/research/findings.md and per-experiment reports.", run_in_background=false)
+Agent(subagent_type="nerd:report-compiler", prompt="Compile findings from docs/research/results/ into docs/research/findings.md and per-experiment reports. Write theories, verdicts, and edges to project DAG: {DAG_PATH}.", run_in_background=false)
 ```
 
 Present summary. Clean up remaining worktrees:
@@ -195,7 +252,7 @@ git worktree prune
 After findings are compiled, run the loop-scout to identify what deserves deep iteration:
 
 ```
-Agent(subagent_type="nerd:loop-scout", prompt="Analyze research findings in docs/research/ and the backlog in .claude/nerd.local.md. Identify the best candidates for /nerd-loop continuous improvement. Write recommendations to docs/research/loop-candidates.md.", run_in_background=false)
+Agent(subagent_type="nerd:loop-scout", prompt="Analyze research findings in docs/research/ and the backlog in .claude/nerd.local.md. Project DAG: {DAG_PATH}. Global index: {DAG_DIR}/index.json. Identify the best candidates for /nerd-loop continuous improvement. Write synthesis nodes to global index when 3+ verdicts share a pattern. Write recommendations to docs/research/loop-candidates.md.", run_in_background=false)
 ```
 
 Present the scout's recommendations:

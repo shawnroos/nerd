@@ -165,7 +165,19 @@ cat > ~/.claude/plugins/nerd/.gitignore << 'EOF'
 hardware-profile.yaml
 global-queue.yaml
 logs/
+dag/
 EOF
+```
+
+**Initialize the Research DAG directory:**
+
+```bash
+mkdir -p ~/.claude/plugins/nerd/dag/projects
+
+# Create global index if it doesn't exist
+if [ ! -f ~/.claude/plugins/nerd/dag/index.json ]; then
+    echo '{"nodes":[],"edges":[],"version":1}' > ~/.claude/plugins/nerd/dag/index.json
+fi
 ```
 
 Write to `~/.claude/plugins/nerd/hardware-profile.yaml`:
