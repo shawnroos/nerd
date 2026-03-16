@@ -92,7 +92,13 @@ BASE_URL="${ENDPOINT%/chat/completions}"
 curl -s -m 5 "${BASE_URL}/models" 2>/dev/null
 ```
 
-If the endpoint is not reachable, help the user start their provider:
+If the endpoint is not reachable:
+
+**In scheduled mode (`NERD_SCHEDULED=1`):** Attempt auto-start before failing:
+- Ollama: `ollama serve &>/dev/null & sleep 5` then retry health check
+- If still unreachable: log error and exit setup gracefully (intern remains disabled)
+
+**In interactive mode:** Help the user start their provider:
 - Ollama: "Run `ollama serve` in another terminal, then `ollama pull {model}`"
 - MLX-LM: "Run `mlx_lm.server --model {model}` in another terminal"
 - llama.cpp: "Run `llama-server -m {model_path}` in another terminal"

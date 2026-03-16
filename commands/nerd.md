@@ -184,7 +184,7 @@ cat .claude/nerd.local.md 2>/dev/null
 If backlog has `proposed` entries and no topic: skip to Phase 3 — the nerd has already been collecting findings.
 If backlog empty or topic specified: continue to Phase 2.
 
-## Phase 2: Obsessive Codebase Scan
+## Phase 2: Codebase Scan
 
 **Intern delegation (parameter-detection):** If `INTERN_AVAILABLE == 1`, delegate per `Skill(skill="nerd:intern-delegation")` — check task mode, call intern if live/shadow, validate, gate on confidence, log to delegation log. If run failure counter > 3, skip remaining intern calls.
 
@@ -206,13 +206,13 @@ Based on the perf-explorer's area map, use **judgment** to decide which speciali
 
 **Guidance for specialist selection:**
 
-| Characteristic in Area Map | Consider Launching |
+| Characteristic in Area Map | Category Parameter |
 |---|---|
-| `iteration_heavy`, `complex_logic` | `nerd:perf-algo-nerd` |
-| `io_boundary` | `nerd:perf-io-nerd` |
-| `allocation_hot` | `nerd:perf-memory-nerd` |
-| `repeated_computation` | `nerd:perf-cache-nerd` |
-| `network_boundary` | `nerd:perf-network-nerd` |
+| `iteration_heavy`, `complex_logic` | `nerd:perf-specialist` with `category=algorithmic` |
+| `io_boundary` | `nerd:perf-specialist` with `category=io` |
+| `allocation_hot` | `nerd:perf-specialist` with `category=memory` |
+| `repeated_computation` | `nerd:perf-specialist` with `category=caching` |
+| `network_boundary` | `nerd:perf-specialist` with `category=network` |
 
 If the explorer found no areas with a particular characteristic, don't launch that specialist. If the explorer found nothing at all, skip Phase 2b entirely.
 
@@ -221,11 +221,11 @@ Compute start IDs for performance findings: take the highest ID from the paramet
 Launch selected specialists in parallel, each with its own ID range:
 
 ```
-Agent(subagent_type="nerd:perf-algo-nerd", prompt="Analyze algorithmic complexity in these areas from the performance explorer: {relevant_areas_json}. Project: {cwd}. {perf_dag_summary}. Start IDs from: {algo_start_id}. Max IDs: {algo_range_size}. Return findings as JSON array.", run_in_background=true)
+Agent(subagent_type="nerd:perf-specialist", prompt="Category: algorithmic. Analyze algorithmic complexity in these areas from the performance explorer: {relevant_areas_json}. Project: {cwd}. {perf_dag_summary}. Start IDs from: {algo_start_id}. Max IDs: {algo_range_size}. Return findings as JSON array.", run_in_background=true)
 
-Agent(subagent_type="nerd:perf-io-nerd", prompt="Analyze I/O patterns in these areas from the performance explorer: {relevant_areas_json}. Project: {cwd}. {perf_dag_summary}. Start IDs from: {io_start_id}. Max IDs: {io_range_size}. Return findings as JSON array.", run_in_background=true)
+Agent(subagent_type="nerd:perf-specialist", prompt="Category: io. Analyze I/O patterns in these areas from the performance explorer: {relevant_areas_json}. Project: {cwd}. {perf_dag_summary}. Start IDs from: {io_start_id}. Max IDs: {io_range_size}. Return findings as JSON array.", run_in_background=true)
 
-# ... launch only the specialists that match the explorer's characteristics
+# ... launch one perf-specialist per matched category (algorithmic, caching, io, memory, network)
 ```
 
 Wait for all specialists to complete. IDs should not collide since each specialist was given a pre-allocated range. If any specialist used fewer IDs than allocated, the gaps are harmless.
@@ -291,7 +291,7 @@ Update status: `proposed` → `planned`. Wait for all plan agents.
 
 Present plans. Use AskUserQuestion: "Plans ready. Execute all, review first, or select subset?"
 
-## Phase 4.5: Lab Readiness Check
+## Phase 5: Lab Readiness Check
 
 Before spinning up expensive experiment agents, validate that the lab is ready.
 
@@ -303,14 +303,14 @@ Project DAG path: {dag_path}. Max parallel experiments: {max_parallel_experiment
 Run all checks: data access, config wiring, eval commands, tool availability, worktree readiness, cross-experiment conflicts, and build infrastructure (Check 7).
 Check 7: Profile the build, detect sccache, select cache strategy, set up caching, write build_cache config to .claude/nerd.local.md. Read infra nodes from the DAG for prior cache verdicts.
 If any experiments have research_type: performance, also run Check 8 (Performance Profiling Readiness): 8a tool availability for profiling tools, 8b determinism validation of metric commands, 8c build mode check for debug symbols, 8d build cache awareness for profiling flags.
-Scaffold any missing infrastructure (export scripts, test fixtures). Do NOT create the eval module — Phase 5.1 handles that.
+Scaffold any missing infrastructure (export scripts, test fixtures). Do NOT create the eval module — Phase 6b handles that.
 Write report to docs/research/lab-readiness-batch-{timestamp}.md.
 ", run_in_background=false)
 ```
 
 **Based on the lab-tech report:**
-- **All READY**: Continue to Phase 5.
-- **Some SCAFFOLDED**: Lab-tech already fixed these. Continue to Phase 5.
+- **All READY**: Continue to Phase 6.
+- **Some SCAFFOLDED**: Lab-tech already fixed these. Continue to Phase 6.
 - **Any BLOCKED**: Present blockers to user. Use AskUserQuestion: "Lab-tech found blockers: {blocker_summary}. Skip blocked experiments, or proceed anyway (results may be invalid)?"
   - If skip: remove blocked experiments from this batch, continue with the rest.
   - If proceed: mark experiments as "may produce invalid results" and continue.
@@ -318,9 +318,9 @@ Write report to docs/research/lab-readiness-batch-{timestamp}.md.
 
 In scheduled mode (`NERD_SCHEDULED=1`): skip blocked experiments automatically, proceed with ready ones.
 
-## Phase 5: Run Experiments in Worktrees
+## Phase 6: Run Experiments in Worktrees
 
-### 5.0: Build Infrastructure Setup
+### Phase 6a: Build Infrastructure Setup
 
 Read the build cache config written by lab-tech Check 7:
 
@@ -330,25 +330,25 @@ grep -E "^build_cache" .claude/nerd.local.md 2>/dev/null
 
 **If `build_cache_strategy` and `build_cache_env` are set:**
 - Start any required cache daemon (e.g., `sccache --start-server` for Rust)
-- Store the env var prefix from `build_cache_env` for Phase 5.2
+- Store the env var prefix from `build_cache_env` for Phase 6c
 
 **If strategy is `artifact_copy`:**
 - Verify the build output directory exists in the main worktree (lab-tech's cache warming should have populated it)
-- Note: the copy happens during worktree creation in Phase 5.2
+- Note: the copy happens during worktree creation in Phase 6c
 
 **If strategy is `none` or not set:**
 - Proceed without build caching. Experiments will build independently.
 
-### 5.1: Create Shared Eval Scaffold
+### Phase 6b: Create Shared Eval Scaffold
 
 Before launching experiments, set up consolidated infrastructure on current branch:
 ```bash
 mkdir -p docs/research/plans docs/research/results
 ```
 
-If no eval module exists (check first — lab-tech in Phase 4.5 does NOT create it), create a scaffold appropriate to the project language. Add a single eval CLI subcommand or script entry point. Each experiment extends this — never creates its own.
+If no eval module exists (check first — lab-tech in Phase 5 does NOT create it), create a scaffold appropriate to the project language. Add a single eval CLI subcommand or script entry point. Each experiment extends this — never creates its own.
 
-### 5.2: Launch Experiment Agents
+### Phase 6c: Launch Experiment Agents
 
 For each `planned` experiment:
 
@@ -381,11 +381,11 @@ If a build fails with cache, retry without it and add cache_fallback: true to re
 
 Cap parallel agents at `max_parallel_experiments` from config.
 
-### 5.25: Intern Result Classification
+### Phase 6d: Intern Result Classification
 
-After each experiment-executor completes and writes results JSON, if `INTERN_AVAILABLE == 1`, delegate result-classification per `Skill(skill="nerd:intern-delegation")`. In live mode, attach intern's classification to the results for Phase 7. In shadow mode, compare against report-compiler's eventual classification in Phase 7.5.
+After each experiment-executor completes and writes results JSON, if `INTERN_AVAILABLE == 1`, delegate result-classification per `Skill(skill="nerd:intern-delegation")`. In live mode, attach intern's classification to the results for Phase 8. In shadow mode, compare against report-compiler's eventual classification in Phase 9.
 
-### 5.3: Merge Completed Experiments
+### Phase 6e: Merge Completed Experiments
 
 As each agent completes, merge immediately:
 
@@ -399,11 +399,11 @@ If merge succeeds: `git worktree remove worktrees/nerd-{entry.id}`.
 
 Merge conflicts in eval module files are additive — combine both sides.
 
-## Phase 6: Monitor
+## Phase 7: Monitor
 
 Use `/loop 5m` to check on background agents. Merge experiments as they complete. When all are done or failed, proceed.
 
-## Phase 7: Deliver Findings
+## Phase 8: Deliver Findings
 
 ```
 Agent(subagent_type="nerd:report-compiler", prompt="Compile findings from docs/research/results/ into docs/research/findings.md and per-experiment reports. Write theories, verdicts, and edges to project DAG: {dag_path}.", run_in_background=false)
@@ -414,7 +414,7 @@ Present summary. Clean up remaining worktrees:
 git worktree prune
 ```
 
-## Phase 7.5: Training Data Extraction (ALWAYS runs)
+## Phase 9: Training Data Extraction (ALWAYS runs)
 
 **Training data is always collected** — regardless of whether the intern is configured. This builds a corpus from every research run so that when someone eventually enables the intern, there's already a body of training data waiting.
 
@@ -423,10 +423,10 @@ Extract training examples from Claude's outputs in this run. For each task type,
 | Task | Input | Output | Source |
 |------|-------|--------|--------|
 | parameter-detection | Source file contents | parameter-scanner's JSON results | Phase 2a |
-| result-classification | Experiment results JSON (parameter OR performance) | report-compiler's verdict | Phase 7 |
+| result-classification | Experiment results JSON (parameter OR performance) | report-compiler's verdict | Phase 8 |
 | context-extraction | Source file + function | parameter-scanner's OR perf-specialist's rationale | Phase 2a/2b |
 | perf-area-mapping | Source file contents | perf-explorer's area map entries | Phase 2a |
-| perf-classification | Performance experiment results JSON | report-compiler's perf verdict | Phase 7 |
+| perf-classification | Performance experiment results JSON | report-compiler's perf verdict | Phase 8 |
 
 **Performance-specific training data:** Tag performance training examples with `"research_type": "performance"` so the intern can learn both parameter and performance result classification.
 
@@ -444,7 +444,7 @@ mkdir -p ~/.claude/plugins/nerd/intern/training-data
 
 **Deduplication:** 24-hour time window on `dedup_key`. **Crash safety:** write-then-fsync, skip malformed trailing lines on read.
 
-## Phase 7.6: Intern State Update and Auto-Eval (if enabled)
+## Phase 10: Intern State Update and Auto-Eval (if enabled)
 
 If `INTERN_AVAILABLE == 1` and delegation occurred this run:
 
@@ -453,7 +453,7 @@ If `INTERN_AVAILABLE == 1` and delegation occurred this run:
 3. Auto-eval: if 10+ new training examples since last eval, re-score accuracy by comparing intern's shadow outputs against Claude's outputs in training data (no extra intern calls needed — just scoring)
 4. Update `last_run` stats, `lifetime_claude_calls_saved`, write state atomically
 
-## Phase 7.7: Intern Performance Summary
+## Phase 11: Intern Performance Summary
 
 If `INTERN_AVAILABLE == 1` and any delegation occurred, display:
 
@@ -467,7 +467,7 @@ Intern Report — {model} via {provider}
   Claude calls saved: {lifetime}
 ```
 
-## Phase 8: Scout for Loop Candidates
+## Phase 12: Scout for Loop Candidates
 
 After findings are compiled, run the loop-scout to identify what deserves deep iteration:
 
@@ -490,9 +490,9 @@ Loop Candidates (ranked by potential):
 
 If running in scheduled mode (`NERD_SCHEDULED=1`) and the schedule window has time remaining, automatically launch `/nerd-loop` on the top candidate.
 
-## Phase 9: Cleanup
+## Phase 13: Cleanup
 
-Stop any build cache daemon started in Phase 5.0 (e.g., `sccache --stop-server` for Rust). Safe to run even if no daemon was started.
+Stop any build cache daemon started in Phase 6a (e.g., `sccache --stop-server` for Rust). Safe to run even if no daemon was started.
 
 ## Error Handling
 

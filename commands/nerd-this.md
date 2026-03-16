@@ -229,13 +229,13 @@ Wait for both to complete. Store: parameter themes, performance area map.
 
 If the perf-explorer found areas of interest, use **judgment** to decide which specialist agents to launch based on the area map's `characteristics`. Same guidance as `/nerd` Phase 2b:
 
-| Characteristic | Specialist |
+| Characteristic | Category Parameter |
 |---|---|
-| `iteration_heavy`, `complex_logic` | `nerd:perf-algo-nerd` |
-| `io_boundary` | `nerd:perf-io-nerd` |
-| `allocation_hot` | `nerd:perf-memory-nerd` |
-| `repeated_computation` | `nerd:perf-cache-nerd` |
-| `network_boundary` | `nerd:perf-network-nerd` |
+| `iteration_heavy`, `complex_logic` | `nerd:perf-specialist` with `category=algorithmic` |
+| `io_boundary` | `nerd:perf-specialist` with `category=io` |
+| `allocation_hot` | `nerd:perf-specialist` with `category=memory` |
+| `repeated_computation` | `nerd:perf-specialist` with `category=caching` |
+| `network_boundary` | `nerd:perf-specialist` with `category=network` |
 
 Launch selected specialists in parallel, passing relevant areas. Wait for completion.
 

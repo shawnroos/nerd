@@ -313,6 +313,8 @@ intern:
   # confidence_threshold: 0.9  # Be more conservative here
 ```
 
+**State migration:** When adding a project-local intern config for the first time, the orchestrator should copy the current global state.json to `.nerd/intern/state.json` as a starting point. This preserves accumulated shadow history. If `.nerd/intern/state.json` already exists, do not overwrite it.
+
 ### Per-project disable:
 ```yaml
 intern:

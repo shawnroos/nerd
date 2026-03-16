@@ -144,12 +144,12 @@ Use these standard tags in the `characteristics` array — they drive specialist
 
 | Tag | Meaning | Suggests Specialist |
 |-----|---------|-------------------|
-| `io_boundary` | Contains database, file, or external service calls | perf-io-nerd |
-| `complex_logic` | Deep nesting, many branches, algorithmic work | perf-algo-nerd |
-| `iteration_heavy` | Loops over collections, nested iteration | perf-algo-nerd |
-| `allocation_hot` | Frequent allocations, clones, string building | perf-memory-nerd |
-| `repeated_computation` | Same expensive work done multiple times | perf-cache-nerd |
-| `network_boundary` | External API calls, RPC, message queues | perf-network-nerd |
+| `io_boundary` | Contains database, file, or external service calls | perf-specialist (category=io) |
+| `complex_logic` | Deep nesting, many branches, algorithmic work | perf-specialist (category=algorithmic) |
+| `iteration_heavy` | Loops over collections, nested iteration | perf-specialist (category=algorithmic) |
+| `allocation_hot` | Frequent allocations, clones, string building | perf-specialist (category=memory) |
+| `repeated_computation` | Same expensive work done multiple times | perf-specialist (category=caching) |
+| `network_boundary` | External API calls, RPC, message queues | perf-specialist (category=network) |
 
 The orchestrator (command) reads the full area map — specifically the `characteristics` arrays on each area — to decide which specialists to launch. There is no separate recommendations field; the characteristics ARE the signal.
 
