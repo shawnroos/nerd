@@ -427,15 +427,18 @@ Extract training examples from Claude's outputs in this run. Same format and pro
 
 Include `reasoning` field — capture Claude's chain-of-thought. Dedup with 24-hour time window. Append to `.nerd/intern/training-data/{task_type}.jsonl`.
 
-## Phase 10.6: Intern State Update (if enabled)
+## Phase 10.6: Intern State Update and Auto-Eval (if enabled)
 
 If `INTERN_AVAILABLE == 1` and delegation occurred this run:
 
-Same protocol as `/nerd` Phase 7.6 — read delegation log for this run_id, update shadow windows, check promotion/demotion/circuit breaker, write updated `.nerd/intern/state.json` atomically.
+Same protocol as `/nerd` Phase 7.6 — three sub-steps:
+- **10.6a:** Update shadow windows and check promotion/demotion
+- **10.6b:** Auto-eval on accumulated training data (if 10+ new examples since last eval — reuse shadow outputs from this run, score against Claude's training data, update accuracy)
+- **10.6c:** Write state atomically
 
 ## Phase 10.7: Intern Performance Summary
 
-If `INTERN_AVAILABLE == 1` and any delegation occurred, display intern performance summary. Same format as `/nerd` Phase 8.5 — show per-task agreement counts, mode changes, shadow window progress, latency, and training examples collected.
+If `INTERN_AVAILABLE == 1` and any delegation occurred, display intern performance summary. Same format as `/nerd` Phase 8.5 — show per-task agreement counts, mode changes, accuracy trends from auto-eval, shadow window progress, latency, and training examples collected.
 
 ## Error Handling
 

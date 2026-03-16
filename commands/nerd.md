@@ -390,18 +390,48 @@ mkdir -p .nerd/intern/training-data
 # Append examples (one per line, validated JSON)
 ```
 
-## Phase 7.6: Intern State Update (if enabled)
+## Phase 7.6: Intern State Update and Auto-Eval (if enabled)
 
 If `INTERN_AVAILABLE == 1` and delegation occurred this run:
 
+### 7.6a: Update shadow windows and promotion
+
 1. Read `.nerd/intern/delegation-log.jsonl` for entries from this `run_id`
-2. For each shadow task: append agreement/disagreement to the rolling window in state.json (keep last 25)
+2. For each shadow/always-shadow task: append agreement/disagreement to the rolling window in state.json (keep last 25)
 3. Check promotion: if 20/25 agreements → promote to live, record `promoted_at` timestamp
 4. Check demotion: if accuracy from latest eval drops below mode threshold for 3 consecutive evals → demote one level
-5. Check circuit breaker: if `consecutive_live_failures >= 5` → demote from live to shadow
-6. Update `last_run` stats: delegated count, fallback count, total intern time
-7. Update `lifetime_claude_calls_saved`: increment by number of successful live delegations
-8. Write updated `.nerd/intern/state.json` (single atomic write)
+5. Update `last_run` stats: delegated count, fallback count, total intern time
+6. Update `lifetime_claude_calls_saved`: increment by number of successful live delegations
+
+### 7.6b: Auto-eval on accumulated training data
+
+After every run, re-score the intern's accuracy using the training data collected so far. This keeps accuracy scores fresh without requiring a separate `/nerd-intern eval` step.
+
+```bash
+# Count training examples per task
+for task in parameter-detection result-classification context-extraction; do
+  count=$(wc -l < ".nerd/intern/training-data/${task}.jsonl" 2>/dev/null || echo 0)
+done
+```
+
+**If 10+ new examples have accumulated since the last eval** (tracked via `last_eval_example_count` in state.json):
+
+1. Take the most recent 20 training examples per task as an eval set (these are Claude-validated ground truth)
+2. Call the intern on each input (using the same protocol from `Skill(skill="nerd:intern-delegation")`)
+3. Score against Claude's output using the task-specific metric
+4. Update `accuracy` in state.json
+5. Save eval results to `.nerd/intern/eval/{timestamp}.json` for trend tracking
+6. Update `last_eval_example_count` in state.json
+
+**If fewer than 10 new examples:** Skip auto-eval (not enough new data to be meaningful). Use the existing accuracy score.
+
+**Auto-eval is lightweight:** It reuses examples the intern already attempted during the run's always-shadow phase. The scoring compares the intern's shadow output (already in the delegation log) against Claude's output (already in training data). No additional intern calls needed — just scoring.
+
+**Why this matters:** Without auto-eval, accuracy scores go stale after the initial aptitude test. The intern could be improving (or degrading) across runs and nobody would know until someone manually runs `/nerd-intern setup` again. Auto-eval keeps the accuracy scores honest and enables data-driven promotion/demotion.
+
+### 7.6c: Write state
+
+Write updated `.nerd/intern/state.json` (single atomic write). Write to the resolved config source (global or project).
 
 ## Phase 8.5: Intern Performance Summary
 
@@ -418,11 +448,18 @@ Intern Report — {model} via {provider}
 
   {promotion_message}
 
+  Accuracy (auto-eval on {eval_count} examples):
+    parameter-detection:    {prev_acc}% → {new_acc}% {trend_arrow}
+    result-classification:  {prev_acc}% → {new_acc}% {trend_arrow}
+    context-extraction:     {prev_acc}% → {new_acc}% {trend_arrow}
+
   Shadow window: {task}: {window_count}/25 ({window_agreements} agreements)
   Avg latency: {avg_ms}ms per call
   Training examples collected: {new_examples} new ({total} total)
   Lifetime Claude calls saved: {lifetime_count}
 ```
+
+Where `{trend_arrow}` is ↑ (improved), ↓ (regressed), or → (unchanged). If auto-eval was skipped (not enough new examples), show "accuracy: unchanged (need {N} more examples for re-eval)".
 
 **Promotion/demotion messages** (if any mode changed this run):
 - Promotion: "parameter-detection promoted to live! (20/25 shadow agreements)"
