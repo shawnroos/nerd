@@ -128,7 +128,23 @@ Then generate two markdown summaries for downstream agents:
 
 Filter plan-reviewer summaries by source file overlap with the experiment's target files. Include edge context (spawned relationships).
 
-Store: `$PROJECT_SLUG`, `$DAG_PATH`, `$DAG_DIR/index.json`, scanner summary, per-experiment summaries.
+**Performance scanner summary** (for Phase 2b specialist agents):
+```markdown
+## Prior Research — Performance (from DAG)
+
+### Skip These Areas (already analyzed, active verdicts):
+- {file}:{function} — {result} in {experiment}: "{evidence}". Category: {category}.
+
+### Re-analyze These (stale — source files changed):
+- {file}:{function} — analyzed in {experiment} but source changed. Previous: {result}.
+
+### Open Hypotheses (untested performance theories from prior runs):
+- {theory_id}: "{title}" — spawned from {verdict_id}, category: {category}.
+```
+
+Filter to nodes with `research_type: "performance"` (or tags containing "performance"). For parameter nodes, use the scanner summary. This separation ensures each agent type receives relevant DAG context.
+
+Store: `$PROJECT_SLUG`, `$DAG_PATH`, `$DAG_DIR/index.json`, scanner summary, perf summary, per-experiment summaries.
 
 **Intern Pre-flight (global default, local override):**
 
@@ -172,43 +188,101 @@ If backlog empty or topic specified: continue to Phase 2.
 
 **Intern delegation (parameter-detection):** If `INTERN_AVAILABLE == 1`, delegate per `Skill(skill="nerd:intern-delegation")` — check task mode, call intern if live/shadow, validate, gate on confidence, log to delegation log. If run failure counter > 3, skip remaining intern calls.
 
-Launch the parameter-scanner agent to crawl the codebase:
+### Phase 2a: Parameter Scan + Performance Explorer (parallel)
+
+Launch both scans in parallel — they are independent:
 
 ```
-Agent(subagent_type="nerd:parameter-scanner", prompt="Scan {cwd} for tunable parameters. Topic: {user_topic or 'all'}. {scanner_dag_summary}. Return structured JSON list.", run_in_background=false)
+Agent(subagent_type="nerd:parameter-scanner", prompt="Scan {cwd} for tunable parameters. Topic: {user_topic or 'all'}. {scanner_dag_summary}. Return structured JSON list.", run_in_background=true)
+
+Agent(subagent_type="nerd:perf-explorer", prompt="Map {cwd} for performance research. Topic: {user_topic or 'all'}. {scanner_dag_summary}. Identify hot paths, I/O boundaries, complex functions, allocation hotspots, and network boundaries. Return structured JSON area map.", run_in_background=true)
 ```
 
-**Classify findings by measurability:**
+Wait for both to complete. Store: parameter findings list, performance area map.
 
-Split the scanner results into two groups:
-- **Experimentable**: Parameters in executable code where a shell command can measure the effect (has a valid `experiment_type` like `parameter_sweep`, `comparison`, or `ablation`)
-- **Analytical**: Parameters in non-executable files or where the only evaluation is human judgment (has `experiment_type: "analytical"`)
+### Phase 2b: Performance Specialist Dispatch (after explorer, parallel)
 
-Present findings grouped by type:
+Based on the perf-explorer's area map, use **judgment** to decide which specialist agents to launch. This is NOT hardcoded dispatch — read the full area map and its `characteristics` to decide which specialists would find meaningful issues.
+
+**Guidance for specialist selection:**
+
+| Characteristic in Area Map | Consider Launching |
+|---|---|
+| `iteration_heavy`, `complex_logic` | `nerd:perf-algo-nerd` |
+| `io_boundary` | `nerd:perf-io-nerd` |
+| `allocation_hot` | `nerd:perf-memory-nerd` |
+| `repeated_computation` | `nerd:perf-cache-nerd` |
+| `network_boundary` | `nerd:perf-network-nerd` |
+
+If the explorer found no areas with a particular characteristic, don't launch that specialist. If the explorer found nothing at all, skip Phase 2b entirely.
+
+Compute start IDs for performance findings: take the highest ID from the parameter-scanner results (e.g., if parameter-scanner used E001-E012, start performance IDs at E013).
+
+Launch selected specialists in parallel, passing the relevant areas from the explorer:
 
 ```
-Experimentable ({N}): Can be swept with automated metrics
-  E001: {title} — {metric}
-  E002: {title} — {metric}
+Agent(subagent_type="nerd:perf-algo-nerd", prompt="Analyze algorithmic complexity in these areas from the performance explorer: {relevant_areas_json}. Project: {cwd}. {perf_dag_summary}. Start IDs from: {perf_start_id}. Return findings as JSON array.", run_in_background=true)
 
-Analytical ({N}): Can be reasoned about but not swept
-  E010: {title} — no automated metric
-  E011: {title} — requires human judgment
+Agent(subagent_type="nerd:perf-io-nerd", prompt="Analyze I/O patterns in these areas from the performance explorer: {relevant_areas_json}. Project: {cwd}. {perf_dag_summary}. Start IDs from: {perf_start_id}. Return findings as JSON array.", run_in_background=true)
+
+# ... launch only the specialists that match the explorer's characteristics
 ```
 
-Use AskUserQuestion: "The nerd found {N} research opportunities ({E} experimentable, {A} analytical). Which ones should it investigate?"
+Wait for all specialists to complete. If multiple specialists ran, re-sequence IDs to avoid collisions (each specialist may have started from the same perf_start_id).
+
+### Phase 2c: Combine and Present Findings
+
+Combine parameter findings and performance findings into a unified candidate list.
+
+**Classify all findings by measurability:**
+
+Split into two groups:
+- **Experimentable**: Findings where a shell command can measure the effect (parameter sweeps, benchmarks, I/O counts). Has a valid `experiment_type` like `parameter_sweep`, `comparison`, `ablation`, `algo_benchmark`, `io_benchmark`, `memory_benchmark`, `cache_benchmark`, `network_benchmark`.
+- **Analytical**: Findings where the only evaluation is human judgment or code review (has `experiment_type: "analytical"` or `measurability: "analytical"`).
+
+**Deduplication for performance findings:** Use `dedup_key` (format: `file:function:metric_type`). If the backlog already has an entry with the same dedup_key, skip it.
+
+Present findings grouped by measurability, then by type and category:
+
+```
+The nerd found {N} parameter opportunities and {M} performance opportunities.
+
+Experimentable ({E} total): Can be measured with automated metrics
+  Parameters:
+    E001 [high] Jaro-Winkler threshold (src/entities/resolution.rs:92) — parameter_sweep
+    E002 [medium] Cache TTL (src/cache/config.ts:15) — parameter_sweep
+  Performance:
+    Algorithmic:
+      E010 [high] Quadratic search in rankResults (src/search/ranking.ts:45)
+    I/O:
+      E011 [high] N+1 query in handleQuery (src/search/handler.ts:87)
+    Caching:
+      E012 [medium] Repeated regex compilation (src/parser/log.ts:23)
+
+Analytical ({A} total): Can be reasoned about but not swept
+    E013 [low] Potential connection leak (src/db/pool.ts:12)
+    E014 [low] Prompt template clarity (src/prompts/system.ts:5)
+
+Which ones should the nerd investigate?
+```
+
+Use AskUserQuestion to let the user select. Add selections to backlog.
 
 Experimentable findings proceed to Phase 3 (experiment design → worktree execution).
 Analytical findings proceed to Phase 3 but use the plan-reviewer for **analytical review** — generating competing theories and reasoned recommendations without building sweep harnesses.
 
-Add selections to backlog.
-
 ## Phase 3: Experiment Design
 
-For each `proposed` entry, launch plan-reviewer agents **in parallel**:
+For each `proposed` entry, launch plan-reviewer agents **in parallel**. Adapt the prompt based on finding type:
 
+**Parameter entries:**
 ```
 Agent(subagent_type="nerd:plan-reviewer", prompt="Create experiment plan for {entry.title}. Parameter: {entry.parameter} at {entry.file}:{entry.line}. {per_experiment_dag_summary}. Write to docs/research/plans/{entry.id}-plan.md.", run_in_background=true)
+```
+
+**Performance entries** (entries with `research_type: performance`):
+```
+Agent(subagent_type="nerd:plan-reviewer", prompt="Create experiment plan for {entry.title}. Performance finding at {entry.file}:{entry.function} (line {entry.line}). Current behavior: {entry.current_behavior}. Proposed improvement: {entry.proposed_improvement}. Metric: {entry.metric} ({entry.metric_direction}). Metric command: {entry.metric_command}. Category: {entry.category}. {per_experiment_dag_summary}. Write to docs/research/plans/{entry.id}-plan.md.", run_in_background=true)
 ```
 
 Update status: `proposed` → `planned`. Wait for all plan agents.
@@ -228,6 +302,7 @@ Project root: {cwd}. Language: {lang}. Test command: {test_cmd}. Build command: 
 Project DAG path: {dag_path}. Max parallel experiments: {max_parallel_experiments}.
 Run all checks: data access, config wiring, eval commands, tool availability, worktree readiness, cross-experiment conflicts, and build infrastructure (Check 7).
 Check 7: Profile the build, detect sccache, select cache strategy, set up caching, write build_cache config to .claude/nerd.local.md. Read infra nodes from the DAG for prior cache verdicts.
+If any experiments have research_type: performance, also run Check 8 (Performance Profiling Readiness): 8a tool availability for profiling tools, 8b determinism validation of metric commands, 8c build mode check for debug symbols, 8d build cache awareness for profiling flags.
 Scaffold any missing infrastructure (export scripts, test fixtures). Do NOT create the eval module — Phase 5.1 handles that.
 Write report to docs/research/lab-readiness-batch-{timestamp}.md.
 ", run_in_background=false)

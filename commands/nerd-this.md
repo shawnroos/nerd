@@ -184,11 +184,13 @@ Use AskUserQuestion to confirm. If the user wants to adjust:
 - They can type paths to remove (e.g., `- src/tests/`)
 - They can type a topic to re-run scope resolution with a narrower focus
 
-## Phase 3: Thematic Parameter Scan
+## Phase 3: Thematic Scan (Parameters + Performance)
 
 **Intern delegation (parameter-detection):** If `INTERN_AVAILABLE == 1`, delegate per `Skill(skill="nerd:intern-delegation")` — check task mode, call intern if live/shadow, validate, gate on confidence, log to delegation log. If run failure counter > 3, skip remaining intern calls.
 
-Launch the context-scanner agent with the confirmed scope:
+### Phase 3a: Context Scanner + Performance Explorer (parallel)
+
+Launch both scans in parallel on the scoped files:
 
 ```
 Agent(subagent_type="nerd:context-scanner", prompt="
@@ -206,14 +208,48 @@ Start IDs from: {computed_start_id}
 (Before this Agent call, compute the start ID: parse all `id:` fields in the backlog YAML, extract the numeric suffix from each (e.g., E042 → 42), take the maximum, add 1, zero-pad to 3 digits, prefix with E. If backlog is empty or has no valid IDs, use E001.)
 
 Return structured JSON with themed parameter groups.
-", run_in_background=false)
+", run_in_background=true)
+
+Agent(subagent_type="nerd:perf-explorer", prompt="
+Map these scoped files for performance research:
+
+Files:
+{scoped_file_list — one file per line}
+
+Topic: {user_topic or 'inferred from session context'}
+
+Only explore the provided files, but trace calls that leave the scope to identify I/O boundaries.
+Return structured JSON area map.
+", run_in_background=true)
 ```
+
+Wait for both to complete. Store: parameter themes, performance area map.
+
+### Phase 3b: Performance Specialist Dispatch (after explorer)
+
+If the perf-explorer found areas of interest, use **judgment** to decide which specialist agents to launch based on the area map's `characteristics`. Same guidance as `/nerd` Phase 2b:
+
+| Characteristic | Specialist |
+|---|---|
+| `iteration_heavy`, `complex_logic` | `nerd:perf-algo-nerd` |
+| `io_boundary` | `nerd:perf-io-nerd` |
+| `allocation_hot` | `nerd:perf-memory-nerd` |
+| `repeated_computation` | `nerd:perf-cache-nerd` |
+| `network_boundary` | `nerd:perf-network-nerd` |
+
+Launch selected specialists in parallel, passing relevant areas. Wait for completion.
+
+Compute start IDs for performance findings: continue from highest ID used by context-scanner.
+
+### Phase 3c: Combine Results
+
+Merge parameter themes and performance findings. Performance findings are grouped into their own theme(s) by category (e.g., "I/O Performance", "Algorithmic Complexity").
 
 ### Handle Results
 
-- **Zero parameters found**: "No tunable parameters found in your scoped files. Try `/nerd` for a full codebase scan, or adjust your scope with `/nerd-this <broader topic>`." — Stop.
-- **One theme**: Skip Phase 4, proceed directly with the single theme.
-- **2-6 themes**: Continue to Phase 4.
+- **Zero parameters AND zero performance findings**: "No research opportunities found in your scoped files. Try `/nerd` for a full codebase scan, or adjust your scope with `/nerd-this <broader topic>`." — Stop.
+- **One theme total**: Skip Phase 4, proceed directly with the single theme.
+- **2+ themes**: Continue to Phase 4.
 
 **Note:** The context-scanner classifies each parameter as experimentable (`parameter_sweep`, `comparison`, `ablation`) or analytical (`experiment_type: "analytical"`). Display this in the theme presentation so the user knows which findings can be swept vs reasoned about.
 
@@ -254,16 +290,25 @@ cat .claude/nerd.local.md 2>/dev/null
 
 ### Deduplication
 
-For each parameter in the selected themes:
+For each finding in the selected themes:
+
+**Parameter findings:**
 1. Check if the backlog already contains an entry with the same `file` AND `parameter` (variable/constant name)
 2. If no `parameter` name match, fall back to matching by `file` AND `line` (approximate — line numbers shift as code changes)
 3. If a match exists, skip the duplicate (the existing entry may already be `planned` or `running`)
 4. If no match, add the new entry
 
+**Performance findings:**
+1. Check if the backlog already contains an entry with the same `dedup_key` (format: `file:function:metric_type`)
+2. Functions are more stable than line numbers — use `file` + `function` + `metric` as the dedup key
+3. If a match exists, skip the duplicate
+4. If no match, add the new entry
+
 ### Add Entries
 
-For each non-duplicate parameter, create a backlog entry:
+For each non-duplicate finding, create a backlog entry:
 
+**Parameter findings:**
 ```yaml
 - id: {parameter.id}
   title: "{parameter.title}"
@@ -281,6 +326,28 @@ For each non-duplicate parameter, create a backlog entry:
   theme: "{theme.name}"
 ```
 
+**Performance findings:**
+```yaml
+- id: {finding.id}
+  title: "{finding.title}"
+  research_type: performance
+  category: {finding.category}
+  file: {finding.file}
+  function: {finding.function}
+  line: {finding.line}
+  current_behavior: "{finding.current_behavior}"
+  proposed_improvement: "{finding.proposed_improvement}"
+  impact: {finding.impact}
+  metric: {finding.metric}
+  metric_command: "{finding.metric_command}"
+  metric_direction: {finding.metric_direction}
+  experiment_type: {finding.experiment_type}
+  dedup_key: "{finding.dedup_key}"
+  status: proposed
+  source: nerd-this
+  theme: "{theme.name}"
+```
+
 ### Update Backlog
 
 Edit `.claude/nerd.local.md` to append new entries to the `backlog:` array.
@@ -289,10 +356,16 @@ Report: "Added {N} experiments to backlog across {T} themes. ({S} skipped as dup
 
 ## Phase 6: Experiment Design
 
-For each `proposed` entry from the new batch, launch plan-reviewer agents **in parallel**:
+For each `proposed` entry from the new batch, launch plan-reviewer agents **in parallel**. Adapt the prompt based on whether the entry is a parameter or performance finding:
 
+**Parameter entries:**
 ```
 Agent(subagent_type="nerd:plan-reviewer", prompt="Create experiment plan for {entry.title}. Parameter: {entry.parameter} at {entry.file}:{entry.line}. Current value: {entry.current_value}. Sweep range: {entry.sweep_range}. Write to docs/research/plans/{entry.id}-plan.md.", run_in_background=true)
+```
+
+**Performance entries** (entries with `research_type: performance`):
+```
+Agent(subagent_type="nerd:plan-reviewer", prompt="Create experiment plan for {entry.title}. Performance finding at {entry.file}:{entry.function} (line {entry.line}). Current behavior: {entry.current_behavior}. Proposed improvement: {entry.proposed_improvement}. Metric: {entry.metric} ({entry.metric_direction}). Metric command: {entry.metric_command}. Category: {entry.category}. Write to docs/research/plans/{entry.id}-plan.md.", run_in_background=true)
 ```
 
 Update status: `proposed` → `planned`. Wait for all plan agents.
@@ -314,6 +387,7 @@ Project root: {cwd}. Language: {lang}. Test command: {test_cmd}. Build command: 
 Project DAG path: {dag_path}. Max parallel experiments: {max_parallel_experiments}.
 Run all checks: data access, config wiring, eval commands, tool availability, worktree readiness, cross-experiment conflicts, and build infrastructure (Check 7).
 Check 7: Profile the build, detect sccache, select cache strategy, set up caching, write build_cache config to .claude/nerd.local.md. Read infra nodes from the DAG for prior cache verdicts.
+If any experiments have research_type: performance, also run Check 8 (Performance Profiling Readiness): 8a tool availability for profiling tools, 8b determinism validation of metric commands, 8c build mode check for debug symbols, 8d build cache awareness for profiling flags.
 Scaffold any missing infrastructure (export scripts, test fixtures). Do NOT create the eval module — Phase 8.1 handles that.
 Write report to docs/research/lab-readiness-batch-{timestamp}.md.
 ", run_in_background=false)
