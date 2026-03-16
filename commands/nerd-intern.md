@@ -179,6 +179,18 @@ Write `~/.claude/plugins/nerd/intern/state.json`:
       "accuracy": {score},
       "shadow_window": [],
       "promoted_at": null
+    },
+    "perf-area-mapping": {
+      "mode": "disabled",
+      "accuracy": 0.0,
+      "shadow_window": [],
+      "promoted_at": null
+    },
+    "perf-classification": {
+      "mode": "disabled",
+      "accuracy": 0.0,
+      "shadow_window": [],
+      "promoted_at": null
     }
   },
   "last_run": null,

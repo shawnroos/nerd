@@ -493,9 +493,11 @@ If running in scheduled mode (`NERD_SCHEDULED=1`) and the schedule window has ti
 
 | Task | Input | Output | Source |
 |------|-------|--------|--------|
-| parameter-detection | Source file contents | context-scanner's JSON results | Phase 3 |
-| result-classification | Experiment results JSON | report-compiler's verdict | Phase 10 |
-| context-extraction | Source file + function | context-scanner's rationale field | Phase 3 |
+| parameter-detection | Source file contents | context-scanner's JSON results | Phase 3a |
+| result-classification | Experiment results JSON (parameter OR performance) | report-compiler's verdict | Phase 10 |
+| context-extraction | Source file + function | context-scanner's or perf-specialist's rationale | Phase 3a/3b |
+| perf-area-mapping | Source file contents | perf-explorer's area map entries | Phase 3a |
+| perf-classification | Performance experiment results JSON | report-compiler's perf verdict | Phase 10 |
 
 ```bash
 mkdir -p .nerd/intern/training-data

@@ -158,11 +158,13 @@ Shadow mode (background) tolerates high latency. Live mode requires <30s per cal
 
 Before using any intern output:
 
-1. **Parse JSON** — malformed response = confidence 0, fallback
+1. **Parse JSON** — use the extract_json() function above. Malformed response = confidence 0, fallback
 2. **Validate schema** — required fields must be present per task type:
    - parameter-detection: `parameters` array with `name`, `file`, `line`, `value` per entry
    - result-classification: `classification` (one of improved/regressed/neutral), `evidence` string
    - context-extraction: `summary` string (10-500 chars)
+   - perf-area-mapping: `areas` array with `file`, `function`, `characteristics` per entry
+   - perf-classification: `classification` (one of improved/regressed/neutral), `evidence` string, `metrics` object
 3. **Check confidence** — response must include `confidence` field (0.0-1.0)
 4. **Gate on threshold** — if `confidence < intern.confidence_threshold` (default 0.8), fallback
 
@@ -170,13 +172,15 @@ Before using any intern output:
 
 ## Shadow Comparison
 
-When a task is in `shadow` mode, both the intern and Claude produce output. Compare them:
+When a task is in `shadow` or `disabled` (always-shadow) mode, both the intern and Claude produce output. Compare them:
 
 | Task | Agreement Metric | Agreement Threshold |
 |------|-----------------|---------------------|
 | parameter-detection | F1 score of detected parameters | F1 >= 0.8 |
 | result-classification | Exact match of classification | Exact match |
 | context-extraction | Jaccard similarity of key terms | Jaccard >= 0.7 |
+| perf-area-mapping | F1 score of identified areas (by file+function) | F1 >= 0.7 |
+| perf-classification | Exact match of classification | Exact match |
 
 **Rolling window:** Track last 25 shadow comparisons per task. Promotion requires 20/25 agreements (not consecutive — tolerates Claude's non-determinism).
 
@@ -282,7 +286,11 @@ collect_training_data: true
       "accuracy": 0.96,
       "shadow_window": [true, true, false, true, true],
       "promoted_at": null
-    }
+    },
+    "result-classification": { "mode": "shadow", "accuracy": 0.60, "shadow_window": [], "promoted_at": null },
+    "context-extraction": { "mode": "disabled", "accuracy": 0.46, "shadow_window": [], "promoted_at": null },
+    "perf-area-mapping": { "mode": "disabled", "accuracy": 0.0, "shadow_window": [], "promoted_at": null },
+    "perf-classification": { "mode": "disabled", "accuracy": 0.0, "shadow_window": [], "promoted_at": null }
   },
   "last_run": {
     "delegated": 3,

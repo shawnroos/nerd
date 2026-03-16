@@ -441,13 +441,17 @@ If running in scheduled mode (`NERD_SCHEDULED=1`) and the schedule window has ti
 
 **Training data is always collected** — regardless of whether the intern is configured. This builds a corpus from every research run so that when someone eventually enables the intern, there's already a body of training data waiting.
 
-Extract training examples from Claude's outputs in this run. For each task type, create JSONL entries:
+Extract training examples from Claude's outputs in this run. For each task type, create JSONL entries from BOTH parameter and performance research:
 
 | Task | Input | Output | Source |
 |------|-------|--------|--------|
-| parameter-detection | Source file contents | parameter-scanner's JSON results | Phase 2 |
-| result-classification | Experiment results JSON | report-compiler's verdict | Phase 7 |
-| context-extraction | Source file + function | parameter-scanner's rationale field | Phase 2 |
+| parameter-detection | Source file contents | parameter-scanner's JSON results | Phase 2a |
+| result-classification | Experiment results JSON (parameter OR performance) | report-compiler's verdict | Phase 7 |
+| context-extraction | Source file + function | parameter-scanner's OR perf-specialist's rationale | Phase 2a/2b |
+| perf-area-mapping | Source file contents | perf-explorer's area map entries | Phase 2a |
+| perf-classification | Performance experiment results JSON | report-compiler's perf verdict | Phase 7 |
+
+**Performance-specific training data:** Performance experiments produce results with metrics like throughput, latency, memory — the same result-classification task applies but the metric interpretation is different (a latency increase is bad, a throughput increase is good). Tag performance training examples with `"research_type": "performance"` so the intern can learn both parameter and performance result classification.
 
 **Training example format:**
 ```json
