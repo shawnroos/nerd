@@ -216,19 +216,19 @@ Based on the perf-explorer's area map, use **judgment** to decide which speciali
 
 If the explorer found no areas with a particular characteristic, don't launch that specialist. If the explorer found nothing at all, skip Phase 2b entirely.
 
-Compute start IDs for performance findings: take the highest ID from the parameter-scanner results (e.g., if parameter-scanner used E001-E012, start performance IDs at E013).
+Compute start IDs for performance findings: take the highest ID from the parameter-scanner results (e.g., if parameter-scanner used E001-E012, start performance IDs at E013). **Pre-allocate non-overlapping ID ranges** per specialist based on the number of areas sent to each (e.g., algo gets E013-E019, io gets E020-E026). This prevents ID collisions when specialists run in parallel.
 
-Launch selected specialists in parallel, passing the relevant areas from the explorer:
+Launch selected specialists in parallel, each with its own ID range:
 
 ```
-Agent(subagent_type="nerd:perf-algo-nerd", prompt="Analyze algorithmic complexity in these areas from the performance explorer: {relevant_areas_json}. Project: {cwd}. {perf_dag_summary}. Start IDs from: {perf_start_id}. Return findings as JSON array.", run_in_background=true)
+Agent(subagent_type="nerd:perf-algo-nerd", prompt="Analyze algorithmic complexity in these areas from the performance explorer: {relevant_areas_json}. Project: {cwd}. {perf_dag_summary}. Start IDs from: {algo_start_id}. Max IDs: {algo_range_size}. Return findings as JSON array.", run_in_background=true)
 
-Agent(subagent_type="nerd:perf-io-nerd", prompt="Analyze I/O patterns in these areas from the performance explorer: {relevant_areas_json}. Project: {cwd}. {perf_dag_summary}. Start IDs from: {perf_start_id}. Return findings as JSON array.", run_in_background=true)
+Agent(subagent_type="nerd:perf-io-nerd", prompt="Analyze I/O patterns in these areas from the performance explorer: {relevant_areas_json}. Project: {cwd}. {perf_dag_summary}. Start IDs from: {io_start_id}. Max IDs: {io_range_size}. Return findings as JSON array.", run_in_background=true)
 
 # ... launch only the specialists that match the explorer's characteristics
 ```
 
-Wait for all specialists to complete. If multiple specialists ran, re-sequence IDs to avoid collisions (each specialist may have started from the same perf_start_id).
+Wait for all specialists to complete. IDs should not collide since each specialist was given a pre-allocated range. If any specialist used fewer IDs than allocated, the gaps are harmless.
 
 ### Phase 2c: Combine and Present Findings
 
@@ -414,6 +414,59 @@ Present summary. Clean up remaining worktrees:
 git worktree prune
 ```
 
+## Phase 7.5: Training Data Extraction (ALWAYS runs)
+
+**Training data is always collected** — regardless of whether the intern is configured. This builds a corpus from every research run so that when someone eventually enables the intern, there's already a body of training data waiting.
+
+Extract training examples from Claude's outputs in this run. For each task type, create JSONL entries from BOTH parameter and performance research:
+
+| Task | Input | Output | Source |
+|------|-------|--------|--------|
+| parameter-detection | Source file contents | parameter-scanner's JSON results | Phase 2a |
+| result-classification | Experiment results JSON (parameter OR performance) | report-compiler's verdict | Phase 7 |
+| context-extraction | Source file + function | parameter-scanner's OR perf-specialist's rationale | Phase 2a/2b |
+| perf-area-mapping | Source file contents | perf-explorer's area map entries | Phase 2a |
+| perf-classification | Performance experiment results JSON | report-compiler's perf verdict | Phase 7 |
+
+**Performance-specific training data:** Tag performance training examples with `"research_type": "performance"` so the intern can learn both parameter and performance result classification.
+
+**Training example format:**
+```json
+{"task_type": "result-classification", "input": {...}, "output": {...}, "reasoning": "Claude's chain-of-thought explanation", "source_agent": "report-compiler", "created_at": "ISO timestamp", "run_id": "run-YYYY-MM-DD-NNN", "dedup_key": "E001:result-classification", "project": "project-slug"}
+```
+
+**Dual write — project-local AND global:**
+```bash
+mkdir -p .nerd/intern/training-data
+mkdir -p ~/.claude/plugins/nerd/intern/training-data
+# Append to BOTH: project-local and global corpus
+```
+
+**Deduplication:** 24-hour time window on `dedup_key`. **Crash safety:** write-then-fsync, skip malformed trailing lines on read.
+
+## Phase 7.6: Intern State Update and Auto-Eval (if enabled)
+
+If `INTERN_AVAILABLE == 1` and delegation occurred this run:
+
+1. Read delegation log for this `run_id`, update shadow windows (keep last 25)
+2. Check promotion (20/25 agreements → live) and demotion (accuracy below threshold for 3 evals)
+3. Auto-eval: if 10+ new training examples since last eval, re-score accuracy by comparing intern's shadow outputs against Claude's outputs in training data (no extra intern calls needed — just scoring)
+4. Update `last_run` stats, `lifetime_claude_calls_saved`, write state atomically
+
+## Phase 7.7: Intern Performance Summary
+
+If `INTERN_AVAILABLE == 1` and any delegation occurred, display:
+
+```
+Intern Report — {model} via {provider}
+──────────────────────────────────
+  This run: {task}: {agreed/total} agreed  {mode} → {new_mode if changed}
+  Accuracy: {task}: {prev}% → {new}% {↑↓→}
+  Shadow window: {task}: {count}/25 ({agreements} agreements)
+  Training examples: {new} new ({total} total)
+  Claude calls saved: {lifetime}
+```
+
 ## Phase 8: Scout for Loop Candidates
 
 After findings are compiled, run the loop-scout to identify what deserves deep iteration:
@@ -436,128 +489,6 @@ Loop Candidates (ranked by potential):
 ```
 
 If running in scheduled mode (`NERD_SCHEDULED=1`) and the schedule window has time remaining, automatically launch `/nerd-loop` on the top candidate.
-
-## Phase 7.5: Training Data Extraction (ALWAYS runs)
-
-**Training data is always collected** — regardless of whether the intern is configured. This builds a corpus from every research run so that when someone eventually enables the intern, there's already a body of training data waiting.
-
-Extract training examples from Claude's outputs in this run. For each task type, create JSONL entries from BOTH parameter and performance research:
-
-| Task | Input | Output | Source |
-|------|-------|--------|--------|
-| parameter-detection | Source file contents | parameter-scanner's JSON results | Phase 2a |
-| result-classification | Experiment results JSON (parameter OR performance) | report-compiler's verdict | Phase 7 |
-| context-extraction | Source file + function | parameter-scanner's OR perf-specialist's rationale | Phase 2a/2b |
-| perf-area-mapping | Source file contents | perf-explorer's area map entries | Phase 2a |
-| perf-classification | Performance experiment results JSON | report-compiler's perf verdict | Phase 7 |
-
-**Performance-specific training data:** Performance experiments produce results with metrics like throughput, latency, memory — the same result-classification task applies but the metric interpretation is different (a latency increase is bad, a throughput increase is good). Tag performance training examples with `"research_type": "performance"` so the intern can learn both parameter and performance result classification.
-
-**Training example format:**
-```json
-{"task_type": "result-classification", "input": {...}, "output": {...}, "reasoning": "Claude's chain-of-thought explanation", "source_agent": "report-compiler", "created_at": "ISO timestamp", "run_id": "run-YYYY-MM-DD-NNN", "dedup_key": "E001:result-classification", "project": "project-slug"}
-```
-
-**Important:** Include `reasoning` field — capture Claude's chain-of-thought, not just final output. This enables knowledge distillation when training is implemented in v2.
-
-**Dual write — project-local AND global:**
-```bash
-mkdir -p .nerd/intern/training-data
-mkdir -p ~/.claude/plugins/nerd/intern/training-data
-
-# For each training example, append to BOTH locations:
-# 1. Project-local: .nerd/intern/training-data/{task_type}.jsonl
-# 2. Global corpus: ~/.claude/plugins/nerd/intern/training-data/{task_type}.jsonl
-```
-
-The global corpus includes a `project` field so examples are traceable to their source. This means:
-- Every nerd run across every project contributes to the global training corpus
-- When a user runs `/nerd-intern setup` for the first time, the aptitude test can score against real examples from their own codebases
-- Project-local data is still available for project-specific analysis
-
-**Deduplication:** Before appending, check if `dedup_key` already exists in the target JSONL file. Use 24-hour time window — same key within 24 hours is a duplicate, otherwise keep.
-
-**Crash safety:** Append with write-then-fsync. On read, skip malformed trailing lines.
-
-## Phase 7.6: Intern State Update and Auto-Eval (if enabled)
-
-If `INTERN_AVAILABLE == 1` and delegation occurred this run:
-
-### 7.6a: Update shadow windows and promotion
-
-1. Read `.nerd/intern/delegation-log.jsonl` for entries from this `run_id`
-2. For each shadow/always-shadow task: append agreement/disagreement to the rolling window in state.json (keep last 25)
-3. Check promotion: if 20/25 agreements → promote to live, record `promoted_at` timestamp
-4. Check demotion: if accuracy from latest eval drops below mode threshold for 3 consecutive evals → demote one level
-5. Update `last_run` stats: delegated count, fallback count, total intern time
-6. Update `lifetime_claude_calls_saved`: increment by number of successful live delegations
-
-### 7.6b: Auto-eval on accumulated training data
-
-After every run, re-score the intern's accuracy using the training data collected so far. This keeps accuracy scores fresh without requiring a separate `/nerd-intern eval` step.
-
-```bash
-# Count training examples per task
-for task in parameter-detection result-classification context-extraction; do
-  count=$(wc -l < ".nerd/intern/training-data/${task}.jsonl" 2>/dev/null || echo 0)
-done
-```
-
-**If 10+ new examples have accumulated since the last eval** (tracked via `last_eval_example_count` in state.json):
-
-1. Take the most recent 20 training examples per task as an eval set (these are Claude-validated ground truth)
-2. Call the intern on each input (using the same protocol from `Skill(skill="nerd:intern-delegation")`)
-3. Score against Claude's output using the task-specific metric
-4. Update `accuracy` in state.json
-5. Save eval results to `.nerd/intern/eval/{timestamp}.json` for trend tracking
-6. Update `last_eval_example_count` in state.json
-
-**If fewer than 10 new examples:** Skip auto-eval (not enough new data to be meaningful). Use the existing accuracy score.
-
-**Auto-eval is lightweight:** It reuses examples the intern already attempted during the run's always-shadow phase. The scoring compares the intern's shadow output (already in the delegation log) against Claude's output (already in training data). No additional intern calls needed — just scoring.
-
-**Why this matters:** Without auto-eval, accuracy scores go stale after the initial aptitude test. The intern could be improving (or degrading) across runs and nobody would know until someone manually runs `/nerd-intern setup` again. Auto-eval keeps the accuracy scores honest and enables data-driven promotion/demotion.
-
-### 7.6c: Write state
-
-Write updated `.nerd/intern/state.json` (single atomic write). Write to the resolved config source (global or project).
-
-## Phase 8.5: Intern Performance Summary
-
-If `INTERN_AVAILABLE == 1` and any delegation occurred this run, display a summary after the research findings and loop candidates:
-
-```
-Intern Report — {model} via {provider}
-──────────────────────────────────
-
-  This run:
-    parameter-detection:    {agreed/total} agreed  {mode} → {new_mode if changed}
-    result-classification:  {agreed/total} agreed  {mode} → {new_mode if changed}
-    context-extraction:     {agreed/total} agreed  {mode} → {new_mode if changed}
-
-  {promotion_message}
-
-  Accuracy (auto-eval on {eval_count} examples):
-    parameter-detection:    {prev_acc}% → {new_acc}% {trend_arrow}
-    result-classification:  {prev_acc}% → {new_acc}% {trend_arrow}
-    context-extraction:     {prev_acc}% → {new_acc}% {trend_arrow}
-
-  Shadow window: {task}: {window_count}/25 ({window_agreements} agreements)
-  Avg latency: {avg_ms}ms per call
-  Training examples collected: {new_examples} new ({total} total)
-  Lifetime Claude calls saved: {lifetime_count}
-```
-
-Where `{trend_arrow}` is ↑ (improved), ↓ (regressed), or → (unchanged). If auto-eval was skipped (not enough new examples), show "accuracy: unchanged (need {N} more examples for re-eval)".
-
-**Promotion/demotion messages** (if any mode changed this run):
-- Promotion: "parameter-detection promoted to live! (20/25 shadow agreements)"
-- Demotion: "result-classification demoted to shadow (accuracy dropped below threshold)"
-- No change: omit this line
-
-If the intern was available but the endpoint went down mid-run: "Intern endpoint went down during run. {N} tasks fell back to Claude."
-
-If no delegation occurred (all tasks disabled and no always-shadow because endpoint was down): skip this section entirely.
 
 ## Phase 9: Cleanup
 

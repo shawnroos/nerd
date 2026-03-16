@@ -11,17 +11,20 @@ The orchestrator (not individual agents) handles all intern delegation. Agents s
 
 Run once at the start of every `/nerd` or `/nerd-this` run when `intern.enabled: true`.
 
+The orchestrator resolves the config source (global or project) during pre-flight and passes the values. The health check consumes those values — it does NOT read config files directly.
+
 ```bash
-INTERN_PROVIDER=$(grep -A10 'intern:' .claude/nerd.local.md 2>/dev/null | grep 'provider:' | head -1 | awk '{print $2}')
-INTERN_MODEL=$(grep -A10 'intern:' .claude/nerd.local.md 2>/dev/null | grep 'model:' | head -1 | awk '{print $2}')
+# These values are passed from the orchestrator's pre-flight resolution:
+# INTERN_PROVIDER, INTERN_MODEL, INTERN_ENDPOINT
 
 if [ "$INTERN_PROVIDER" = "ollama" ] || [ -z "$INTERN_PROVIDER" ]; then
   # Ollama: use native /api/tags endpoint
   HEALTH=$(curl -s -m 5 "http://localhost:11434/api/tags" 2>/dev/null)
+  # Verify model is loaded
+  echo "$HEALTH" | python3 -c "import json,sys; d=json.load(sys.stdin); models=[m['name'] for m in d.get('models',[])]; sys.exit(0 if any('${INTERN_MODEL}' in m for m in models) else 1)" 2>/dev/null
 else
   # Other providers: use OpenAI-compatible endpoint
-  INTERN_ENDPOINT=$(grep -A10 'intern:' .claude/nerd.local.md 2>/dev/null | grep 'endpoint:' | head -1 | awk '{print $2}')
-  HEALTH=$(curl -s -m 5 "${INTERN_ENDPOINT%/chat/completions}/models" 2>/dev/null)
+  HEALTH=$(curl -s -m 5 "${INTERN_ENDPOINT}/v1/models" 2>/dev/null)
 fi
 ```
 
@@ -266,7 +269,7 @@ fi
 
 **Why global state:** The intern's competence is about the model, not the codebase. Shadow agreements from project A count toward promotion just as much as agreements from project B. Global state means the intern earns live mode faster across all your work.
 
-**Training data is always project-local:** `.nerd/intern/training-data/`. Code patterns ARE project-specific — training examples from a Rust project don't help with TypeScript.
+**Training data is dual-written:** Both project-local (`.nerd/intern/training-data/`) AND global (`~/.claude/plugins/nerd/intern/training-data/`). The global corpus includes a `project` field for traceability. This means the intern's aptitude test and auto-eval can draw from all prior research runs across all projects.
 
 ### Global config (`~/.claude/plugins/nerd/intern/config.yaml`):
 ```yaml
