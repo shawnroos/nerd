@@ -119,22 +119,38 @@ Agent(subagent_type="nerd:intern-evaluator", prompt="
 ")
 ```
 
-### Step 6: Write Config
+### Step 6: Choose Scope
 
-Write user preferences to `.claude/nerd.local.md` under the `intern:` key:
+Use AskUserQuestion (skip in autonomous mode — default to global):
 
-```yaml
-intern:
-  enabled: true
-  model: {model}
-  endpoint: {endpoint}
-  confidence_threshold: 0.8
-  delegation_timeout_seconds: 30
-  collect_training_data: true
+"Configure the intern globally or for this project only?"
+
+Options:
+1. **Global (recommended)** — shadows across all projects, learns faster
+2. **This project only** — isolated config and state
+
+In autonomous mode (`NERD_SCHEDULED=1`): default to global.
+
+### Step 7: Write Config
+
+**If global (default):**
+
+```bash
+mkdir -p ~/.claude/plugins/nerd/intern
 ```
 
-Create `.nerd/intern/state.json` with initial state from aptitude test results:
+Write `~/.claude/plugins/nerd/intern/config.yaml`:
+```yaml
+provider: {provider}
+model: {model}
+endpoint: {endpoint}
+confidence_threshold: 0.8
+collect_training_data: true
+setup_timestamp: "{ISO timestamp}"
+gpu_type: "{metal|cuda|cpu}"
+```
 
+Write `~/.claude/plugins/nerd/intern/state.json`:
 ```json
 {
   "tasks": {
@@ -158,13 +174,26 @@ Create `.nerd/intern/state.json` with initial state from aptitude test results:
     }
   },
   "last_run": null,
-  "lifetime_claude_calls_saved": 0,
-  "setup_timestamp": "{ISO timestamp}",
-  "gpu_type": "{metal|cuda|cpu}"
+  "lifetime_claude_calls_saved": 0
 }
 ```
 
-Create directories:
+**If project-only:**
+
+Write intern config to `.claude/nerd.local.md` under the `intern:` key:
+```yaml
+intern:
+  enabled: true
+  provider: {provider}
+  model: {model}
+  endpoint: {endpoint}
+  confidence_threshold: 0.8
+  collect_training_data: true
+```
+
+Write state to `.nerd/intern/state.json` (same format as global).
+
+**Always create project-local training data directory** (training data is always per-project):
 
 ```bash
 mkdir -p .nerd/intern/training-data
@@ -172,20 +201,24 @@ mkdir -p .nerd/intern/eval
 mkdir -p .nerd/intern/benchmark
 ```
 
-### Step 7: Confirm
+### Step 8: Confirm
 
 Display the aptitude test results and final configuration. End with:
 
 ```
-Intern configured. Your {model} is ready.
+Intern configured ({scope}). Your {model} is ready.
 
-Next /nerd or /nerd-this run will:
-- Shadow tasks scored above 0.6
-- Skip tasks scored below 0.3
-- Collect training data for future improvement
+Your intern will shadow Claude on every /nerd and /nerd-this run:
+- Tasks scored above 0.6: active shadow (counts toward promotion)
+- Tasks below 0.6: passive shadow (learns but doesn't promote yet)
+- All tasks: collecting training data for future improvement
+
+The intern shadows automatically — no action needed. It learns from every research job.
 
 Run /nerd-intern status anytime to check progress.
 ```
+
+Where `{scope}` is "global — active across all projects" or "this project only".
 
 ---
 

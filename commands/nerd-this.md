@@ -68,14 +68,23 @@ fi
 
 This closes the `if [ ! -f .claude/nerd.local.md ]` block — the config file and gitignore entry are only created on first run.
 
-**Intern Pre-flight (if enabled):**
+**Intern Pre-flight (global default, local override):**
 
 ```bash
-# Check if intern is configured
-INTERN_ENABLED=$(grep -A1 "intern:" .claude/nerd.local.md 2>/dev/null | grep "enabled: true" | wc -l | tr -d ' ')
+# Check intern config — project-local first, then global
+if grep -q "intern:" .claude/nerd.local.md 2>/dev/null; then
+  INTERN_DISABLED=$(grep -A5 "intern:" .claude/nerd.local.md 2>/dev/null | grep "enabled: false" | wc -l | tr -d ' ')
+  [ "$INTERN_DISABLED" = "1" ] && INTERN_SOURCE="none" || INTERN_SOURCE="project"
+elif [ -f ~/.claude/plugins/nerd/intern/config.yaml ]; then
+  INTERN_SOURCE="global"
+else
+  INTERN_SOURCE="none"
+fi
 ```
 
-If `INTERN_ENABLED == 1`: Execute the Pre-Run Health Check defined in `Skill(skill="nerd:intern-delegation")`, Phase 0. Read intern config from `.claude/nerd.local.md` and state from `.nerd/intern/state.json`. If state.json exists but fails JSON parsing, treat as if intern is not configured for this run and log warning. Store the resulting `INTERN_AVAILABLE`, config values, and task modes.
+If `INTERN_SOURCE != "none"`: Execute the Pre-Run Health Check defined in `Skill(skill="nerd:intern-delegation")`, Phase 0. Read config from the resolved source. Read state from the resolved source. **Always-shadow:** intern shadows ALL tasks on every run — see `Skill(skill="nerd:intern-delegation")` for the always-shadow protocol.
+
+Store: `INTERN_AVAILABLE`, `INTERN_SOURCE`, config values, and task modes.
 
 **Detect project:**
 ```bash

@@ -130,14 +130,26 @@ Filter plan-reviewer summaries by source file overlap with the experiment's targ
 
 Store: `$PROJECT_SLUG`, `$DAG_PATH`, `$DAG_DIR/index.json`, scanner summary, per-experiment summaries.
 
-**Intern Pre-flight (if enabled):**
+**Intern Pre-flight (global default, local override):**
 
 ```bash
-# Check if intern is configured
-INTERN_ENABLED=$(grep -A1 "intern:" .claude/nerd.local.md 2>/dev/null | grep "enabled: true" | wc -l | tr -d ' ')
+# Check intern config — project-local first, then global
+if grep -q "intern:" .claude/nerd.local.md 2>/dev/null; then
+  # Project has intern config — check if explicitly disabled
+  INTERN_DISABLED=$(grep -A5 "intern:" .claude/nerd.local.md 2>/dev/null | grep "enabled: false" | wc -l | tr -d ' ')
+  [ "$INTERN_DISABLED" = "1" ] && INTERN_SOURCE="none" || INTERN_SOURCE="project"
+elif [ -f ~/.claude/plugins/nerd/intern/config.yaml ]; then
+  INTERN_SOURCE="global"
+else
+  INTERN_SOURCE="none"
+fi
 ```
 
-If `INTERN_ENABLED == 1`: Execute the Pre-Run Health Check defined in `Skill(skill="nerd:intern-delegation")`, Phase 0. Read intern config from `.claude/nerd.local.md` and state from `.nerd/intern/state.json`. If state.json exists but fails JSON parsing, treat as if intern is not configured for this run and log warning. Store the resulting `INTERN_AVAILABLE`, config values, and task modes.
+If `INTERN_SOURCE != "none"`: Execute the Pre-Run Health Check defined in `Skill(skill="nerd:intern-delegation")`, Phase 0. Read config from the resolved source (project `.claude/nerd.local.md` or global `~/.claude/plugins/nerd/intern/config.yaml`). Read state from the resolved source (project `.nerd/intern/state.json` or global `~/.claude/plugins/nerd/intern/state.json`). If state.json fails JSON parsing, treat as unconfigured for this run and log warning.
+
+**Always-shadow:** When the intern is available, it shadows ALL tasks on every run — even tasks in `disabled` mode. See `Skill(skill="nerd:intern-delegation")` for the always-shadow protocol. This is free (local model, no API cost) and builds training data for future improvement.
+
+Store: `INTERN_AVAILABLE`, `INTERN_SOURCE`, config values, and task modes.
 
 **Detect project:**
 ```bash

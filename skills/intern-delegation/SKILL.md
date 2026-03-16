@@ -46,14 +46,20 @@ If mode == "live":
   → If fails: call Claude, pass intern's failed attempt as context
 
 If mode == "shadow":
-  → Call intern (non-blocking if possible)
+  → Call intern in background
   → Call Claude (always, result is authoritative)
-  → Compare outputs, log agreement
+  → Compare outputs, log agreement (counts toward promotion)
   → Use Claude's result
 
 If mode == "disabled":
-  → Skip intern, call Claude normally
+  → Call intern in background (always-shadow)
+  → Call Claude (always, result is authoritative)
+  → Compare outputs, log as passive observation (does NOT count toward promotion)
+  → Use Claude's result
+  → Training data still collected
 ```
+
+**Key difference between shadow and disabled:** Both run the intern alongside Claude. Shadow agreements count toward the 20/25 promotion threshold. Disabled observations are logged but don't count — they're passive learning. This lets the intern build training data on tasks it hasn't formally "earned" yet.
 
 ## Calling the Intern
 
@@ -225,26 +231,55 @@ After all phases complete, the orchestrator reads the delegation log for this ru
 4. Check circuit breaker: if 5 consecutive live failures, demote to shadow
 5. Write updated state.json (single atomic write)
 
-## Config vs State Split
+## Config Resolution: Global Default, Local Override
 
-**User preferences** in `nerd.local.md` (human-editable):
-```yaml
-intern:
-  enabled: true
-  provider: ollama                   # ollama, mlx-lm, llama-cpp, vllm
-  model: qwen3:4b
-  endpoint: http://localhost:11434   # base URL — Ollama uses /api/chat, others use /v1/chat/completions
-  confidence_threshold: 0.8
-  collect_training_data: true
+The intern is configured **globally** by default so it shadows across all projects. Per-project overrides are optional.
+
+### Resolution order (first match wins):
+
+1. **Project-local config:** `.claude/nerd.local.md` → `intern:` section
+2. **Global config:** `~/.claude/plugins/nerd/intern/config.yaml`
+3. **Not configured:** intern is inactive
+
+```bash
+# Resolution logic
+if grep -q "intern:" .claude/nerd.local.md 2>/dev/null; then
+  # Project-level override — use it (may disable intern for this project)
+  SOURCE="project"
+elif [ -f ~/.claude/plugins/nerd/intern/config.yaml ]; then
+  # Global config — use it
+  SOURCE="global"
+else
+  # No intern configured
+  SOURCE="none"
+fi
 ```
 
-**Runtime state** in `.nerd/intern/state.json` (machine-managed):
+### State resolution (same pattern):
+
+1. **Project-local state:** `.nerd/intern/state.json` (if project config exists)
+2. **Global state:** `~/.claude/plugins/nerd/intern/state.json`
+
+**Why global state:** The intern's competence is about the model, not the codebase. Shadow agreements from project A count toward promotion just as much as agreements from project B. Global state means the intern earns live mode faster across all your work.
+
+**Training data is always project-local:** `.nerd/intern/training-data/`. Code patterns ARE project-specific — training examples from a Rust project don't help with TypeScript.
+
+### Global config (`~/.claude/plugins/nerd/intern/config.yaml`):
+```yaml
+provider: ollama
+model: qwen3:4b
+endpoint: http://localhost:11434
+confidence_threshold: 0.8
+collect_training_data: true
+```
+
+### Global state (`~/.claude/plugins/nerd/intern/state.json`):
 ```json
 {
   "tasks": {
     "parameter-detection": {
       "mode": "shadow",
-      "accuracy": 0.76,
+      "accuracy": 0.96,
       "shadow_window": [true, true, false, true, true],
       "promoted_at": null
     }
@@ -257,3 +292,31 @@ intern:
   "lifetime_claude_calls_saved": 0
 }
 ```
+
+### Per-project override (`.claude/nerd.local.md`):
+```yaml
+intern:
+  enabled: false          # Disable intern for this project
+  # Or override specific settings:
+  # model: qwen3:1b       # Use a smaller model for this project
+  # confidence_threshold: 0.9  # Be more conservative here
+```
+
+### Per-project disable:
+```yaml
+intern:
+  enabled: false
+```
+
+## Always-Shadow: Every Run is a Learning Opportunity
+
+**When the intern is configured (global or local), it ALWAYS shadows Claude on research tasks** — even if all task modes are `disabled`. The shadow comparison is free (the local model runs on your hardware, Claude is already running for the research job).
+
+The behavior per mode:
+- **`live`**: Intern goes first. If confident enough, use its result. Otherwise fall back to Claude.
+- **`shadow`**: Both run. Use Claude's result. Compare and log agreement.
+- **`disabled`**: Both run. Use Claude's result. Compare and log — but don't count toward promotion. This is passive observation that builds training data without affecting promotion thresholds.
+
+**Why always-shadow for disabled tasks:** The intern needs volume to improve. Waiting for a task to be manually promoted to `shadow` before collecting any data wastes every research run in between. Passive shadowing on disabled tasks builds training data and lets the user see improvement trends in `/nerd-intern status` before deciding to promote.
+
+**The only time the intern doesn't run:** When there is no intern configured at all (no global config, no project config), or when the endpoint health check fails at Phase 0.
