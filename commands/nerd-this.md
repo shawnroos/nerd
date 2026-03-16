@@ -433,6 +433,10 @@ If `INTERN_AVAILABLE == 1` and delegation occurred this run:
 
 Same protocol as `/nerd` Phase 7.6 — read delegation log for this run_id, update shadow windows, check promotion/demotion/circuit breaker, write updated `.nerd/intern/state.json` atomically.
 
+## Phase 10.7: Intern Performance Summary
+
+If `INTERN_AVAILABLE == 1` and any delegation occurred, display intern performance summary. Same format as `/nerd` Phase 8.5 — show per-task agreement counts, mode changes, shadow window progress, latency, and training examples collected.
+
 ## Error Handling
 
 - Agent fails → mark `failed`, keep worktree, continue others

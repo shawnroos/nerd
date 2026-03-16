@@ -403,6 +403,36 @@ If `INTERN_AVAILABLE == 1` and delegation occurred this run:
 7. Update `lifetime_claude_calls_saved`: increment by number of successful live delegations
 8. Write updated `.nerd/intern/state.json` (single atomic write)
 
+## Phase 8.5: Intern Performance Summary
+
+If `INTERN_AVAILABLE == 1` and any delegation occurred this run, display a summary after the research findings and loop candidates:
+
+```
+Intern Report — {model} via {provider}
+──────────────────────────────────
+
+  This run:
+    parameter-detection:    {agreed/total} agreed  {mode} → {new_mode if changed}
+    result-classification:  {agreed/total} agreed  {mode} → {new_mode if changed}
+    context-extraction:     {agreed/total} agreed  {mode} → {new_mode if changed}
+
+  {promotion_message}
+
+  Shadow window: {task}: {window_count}/25 ({window_agreements} agreements)
+  Avg latency: {avg_ms}ms per call
+  Training examples collected: {new_examples} new ({total} total)
+  Lifetime Claude calls saved: {lifetime_count}
+```
+
+**Promotion/demotion messages** (if any mode changed this run):
+- Promotion: "parameter-detection promoted to live! (20/25 shadow agreements)"
+- Demotion: "result-classification demoted to shadow (accuracy dropped below threshold)"
+- No change: omit this line
+
+If the intern was available but the endpoint went down mid-run: "Intern endpoint went down during run. {N} tasks fell back to Claude."
+
+If no delegation occurred (all tasks disabled and no always-shadow because endpoint was down): skip this section entirely.
+
 ## Phase 9: Cleanup
 
 Stop any build cache daemon started in Phase 5.0 (e.g., `sccache --stop-server` for Rust). Safe to run even if no daemon was started.
