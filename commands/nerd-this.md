@@ -413,11 +413,9 @@ Loop Candidates (ranked by potential):
 
 If running in scheduled mode (`NERD_SCHEDULED=1`) and the schedule window has time remaining, automatically launch `/nerd-loop` on the top candidate.
 
-## Phase 10.5: Training Data Extraction (if enabled)
+## Phase 10.5: Training Data Extraction (ALWAYS runs)
 
-If `intern.collect_training_data: true` in config (or `intern.enabled: true`):
-
-Extract training examples from Claude's outputs in this run. Same format and protocol as `/nerd` Phase 7.5 — see `Skill(skill="nerd:intern-delegation")` for the delegation protocol and training data format.
+**Always runs** — same as `/nerd` Phase 7.5. Dual-writes to project-local AND global corpus regardless of intern config.
 
 | Task | Input | Output | Source |
 |------|-------|--------|--------|
@@ -425,7 +423,13 @@ Extract training examples from Claude's outputs in this run. Same format and pro
 | result-classification | Experiment results JSON | report-compiler's verdict | Phase 10 |
 | context-extraction | Source file + function | context-scanner's rationale field | Phase 3 |
 
-Include `reasoning` field — capture Claude's chain-of-thought. Dedup with 24-hour time window. Append to `.nerd/intern/training-data/{task_type}.jsonl`.
+```bash
+mkdir -p .nerd/intern/training-data
+mkdir -p ~/.claude/plugins/nerd/intern/training-data
+# Append to both: .nerd/intern/training-data/{task}.jsonl AND ~/.claude/plugins/nerd/intern/training-data/{task}.jsonl
+```
+
+Include `reasoning` field and `project` field. Dedup with 24-hour time window.
 
 ## Phase 10.6: Intern State Update and Auto-Eval (if enabled)
 

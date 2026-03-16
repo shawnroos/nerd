@@ -362,9 +362,9 @@ Loop Candidates (ranked by potential):
 
 If running in scheduled mode (`NERD_SCHEDULED=1`) and the schedule window has time remaining, automatically launch `/nerd-loop` on the top candidate.
 
-## Phase 7.5: Training Data Extraction (if enabled)
+## Phase 7.5: Training Data Extraction (ALWAYS runs)
 
-If `intern.collect_training_data: true` in config (or `intern.enabled: true`):
+**Training data is always collected** — regardless of whether the intern is configured. This builds a corpus from every research run so that when someone eventually enables the intern, there's already a body of training data waiting.
 
 Extract training examples from Claude's outputs in this run. For each task type, create JSONL entries:
 
@@ -376,19 +376,29 @@ Extract training examples from Claude's outputs in this run. For each task type,
 
 **Training example format:**
 ```json
-{"task_type": "result-classification", "input": {...}, "output": {...}, "reasoning": "Claude's chain-of-thought explanation", "source_agent": "report-compiler", "created_at": "ISO timestamp", "run_id": "run-YYYY-MM-DD-NNN", "dedup_key": "E001:result-classification"}
+{"task_type": "result-classification", "input": {...}, "output": {...}, "reasoning": "Claude's chain-of-thought explanation", "source_agent": "report-compiler", "created_at": "ISO timestamp", "run_id": "run-YYYY-MM-DD-NNN", "dedup_key": "E001:result-classification", "project": "project-slug"}
 ```
 
-**Important:** Include `reasoning` field — capture Claude's chain-of-thought, not just final output. This enables knowledge distillation (not just supervised fine-tuning) when training is implemented in v2.
+**Important:** Include `reasoning` field — capture Claude's chain-of-thought, not just final output. This enables knowledge distillation when training is implemented in v2.
 
-**Deduplication:** Before appending, check if `dedup_key` already exists in the JSONL file. Use 24-hour time window — same key within 24 hours is a duplicate, otherwise keep (preserves natural output diversity across sessions).
-
-**Crash safety:** Append with write-then-fsync. On read, skip malformed trailing lines.
-
+**Dual write — project-local AND global:**
 ```bash
 mkdir -p .nerd/intern/training-data
-# Append examples (one per line, validated JSON)
+mkdir -p ~/.claude/plugins/nerd/intern/training-data
+
+# For each training example, append to BOTH locations:
+# 1. Project-local: .nerd/intern/training-data/{task_type}.jsonl
+# 2. Global corpus: ~/.claude/plugins/nerd/intern/training-data/{task_type}.jsonl
 ```
+
+The global corpus includes a `project` field so examples are traceable to their source. This means:
+- Every nerd run across every project contributes to the global training corpus
+- When a user runs `/nerd-intern setup` for the first time, the aptitude test can score against real examples from their own codebases
+- Project-local data is still available for project-specific analysis
+
+**Deduplication:** Before appending, check if `dedup_key` already exists in the target JSONL file. Use 24-hour time window — same key within 24 hours is a duplicate, otherwise keep.
+
+**Crash safety:** Append with write-then-fsync. On read, skip malformed trailing lines.
 
 ## Phase 7.6: Intern State Update and Auto-Eval (if enabled)
 

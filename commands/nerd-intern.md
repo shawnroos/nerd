@@ -99,13 +99,21 @@ If the endpoint is not reachable, help the user start their provider:
 
 ### Step 5: Run Aptitude Test
 
-**Check benchmark availability first:**
+**Check benchmark availability** (three sources, in priority order):
 ```bash
-ls ${CLAUDE_PLUGIN_ROOT}/skills/intern-training/benchmark-seed/ 2>/dev/null
+# 1. Global training corpus (from all prior /nerd runs across all projects)
+ls ~/.claude/plugins/nerd/intern/training-data/*.jsonl 2>/dev/null | head -1
+
+# 2. Project-local benchmarks
 ls .nerd/intern/benchmark/ 2>/dev/null
+
+# 3. Seed benchmarks bundled with the plugin
+ls ${CLAUDE_PLUGIN_ROOT}/skills/intern-training/benchmark-seed/ 2>/dev/null
 ```
 
-If neither seed benchmarks nor project benchmarks exist: "No benchmark data available yet. The aptitude test needs examples to score against. Run `/nerd` first to generate training examples from your codebase, then re-run `/nerd-intern setup`." In scheduled mode, log this and exit setup gracefully (intern remains disabled).
+**Use the global corpus first** — it contains real examples from the user's own codebases. Seed benchmarks are the fallback for first-time users who haven't run `/nerd` yet.
+
+If none exist: "No benchmark data available yet. Run `/nerd` on any project first to build training data, then re-run `/nerd-intern setup`." In scheduled mode, log this and exit gracefully.
 
 If benchmarks are available, invoke the intern-evaluator agent:
 
