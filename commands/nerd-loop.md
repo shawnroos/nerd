@@ -51,6 +51,10 @@ Examples of valid metrics:
 | test coverage | line coverage % | `pytest --cov --cov-report=term` |
 | bundle size | bytes | `npm run build && stat -f%z dist/index.js` |
 | compile time | seconds | `time cargo build 2>&1` |
+| query count | queries per request | `NODE_DEBUG=sql node bench.js 2>&1 \| grep -c SELECT` |
+| throughput | ops/sec | `wrk -t2 -c10 -d10s http://localhost:3000/api` |
+| request count | HTTP requests per sync | `NODE_DEBUG=http node bench.js 2>&1 \| grep -c HTTP` |
+| allocation rate | allocs/op | language-specific profiler (e.g., `DHAT_LOG=1 cargo run`) |
 
 Examples of **invalid** metrics (use `/nerd` instead):
 
