@@ -13,6 +13,29 @@ Research what you're working on right now. Instead of scanning the entire codeba
 
 <user_topic>$ARGUMENTS</user_topic>
 
+## Brief Mode Detection (sweep-of-one)
+
+Before scope inference, check whether `$ARGUMENTS` is a **structured experiment brief** rather than a free-text topic. A brief tests one specific, falsifiable question instead of discovering experiments from scope. Detect by prefix (same `$ARGUMENTS`-parsing pattern as `/nerd-intern`):
+
+- `commit:<ref>` — "did this commit change the metric?" Run a sweep-of-one: baseline (the commit's parent) vs. the commit.
+- `hypothesis:<statement>` — a single falsifiable claim with a `metric:<command>` clause to measure it.
+- An optional `metric:<command>` clause names the numeric metric. Example: `/nerd-this commit:455cc59 metric:"cargo run -- eval latency"`
+
+If a brief prefix is present, route to **Brief Mode** below and SKIP Phase 1 scope inference. If `$ARGUMENTS` has no brief prefix (or is empty), treat it as a free-text topic and proceed normally through Phase 1.
+
+### Brief Mode
+
+A brief is a *different intent* from scope-discovery — it is the falsifiable-experiment shape nerd is built for, narrowed to one cell. It is a native mode here (not a separate command) because a single-commit test is a central case of "run any falsifiable experiment," not a different tool.
+
+1. **Resolve scope from the brief, not from session signals:**
+   - `commit:<ref>` → scope is that commit's changed files: `git diff <ref>^..<ref> --name-only`. The comparison is `<ref>^` (baseline) vs. `<ref>` (HEAD-of-interest).
+   - `hypothesis:<statement>` → scope is whatever files the hypothesis names or the current working changes; the statement seeds the first comparison.
+2. **Require a trusted numeric metric** (consistent with the measurability bound). Take it from the `metric:` clause, or infer one. Run it through the **same sensitivity check lab-tech applies** (does the metric move under a known perturbation?). If there is no numeric metric, or it can't be verified sensitive, emit the same SETUP-NEEDED guidance lab-tech uses and STOP — do not fake a verdict.
+3. **Run the sweep-of-one** via the existing executor/report path (do NOT build a parallel runner): one comparison cell, baseline vs. the commit/change, producing a numeric KEEP / CHANGE / REFUTE verdict — the same output `/ce-debug` would give for "did this commit cause the regression?".
+4. **Record a `research_type: "hypothesis"` theory node** in the DAG (report-compiler) so the brief's verdict is remembered like any other experiment.
+
+Then skip to Phase 4+ (Experiment Design → execution) with this single experiment; Phases 1–3's discovery/theming are not needed for a brief.
+
 ## Pre-flight
 
 **Check schedule mode:** If `NERD_SCHEDULED=1` is set, operate fully autonomously — skip all AskUserQuestion calls, make decisions without user input.

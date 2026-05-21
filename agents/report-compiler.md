@@ -188,7 +188,7 @@ For **each competing theory** in **each experiment plan**, create a theory node:
 }
 ```
 
-Set `research_type` from the experiment's nature: `parameter` for a tunable-value sweep, `performance` for a perf benchmark (carry through the finding's `research_type: performance` when present), `experiment` for any other falsifiable experiment with a numeric metric (model/prompt comparison, ablation) that fits neither. The finding's own `research_type` field (e.g., perf findings carry `research_type: "performance"`) is the upstream source — propagate it.
+Set `research_type` from the experiment's nature: `parameter` for a tunable-value sweep, `performance` for a perf benchmark (carry through the finding's `research_type: performance` when present), `experiment` for any other falsifiable experiment with a numeric metric (model/prompt comparison, ablation) that fits neither, and `hypothesis` for a single-commit / single-change sweep-of-one from the `/nerd-this` brief mode. The finding's own `research_type` field (e.g., perf findings carry `research_type: "performance"`) is the upstream source — propagate it.
 
 If the theory was spawned by a prior verdict, add `"spawned_from": "{verdict_id}"`.
 
