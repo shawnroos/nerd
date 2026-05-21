@@ -460,8 +460,18 @@ git merge nerd/{entry.id} --no-edit
 {test_command}  # verify tests pass
 ```
 
-If tests fail: `git reset --hard HEAD~1`, mark `failed`, keep worktree.
-If merge succeeds: `git worktree remove worktrees/nerd-{entry.id}`.
+If tests fail: `git reset --hard HEAD~1`, mark `failed`, **keep the worktree** (it holds debuggable state).
+
+If merge succeeds, clean up the worktree — gated on the `auto_cleanup_worktrees` config flag:
+
+```bash
+AUTO_CLEANUP=$(grep -E '^auto_cleanup_worktrees:' .claude/nerd.local.md | sed 's/.*: *//')
+if [ "$AUTO_CLEANUP" != "false" ]; then        # default true when unset
+  git worktree remove worktrees/nerd-{entry.id}
+fi
+```
+
+When `auto_cleanup_worktrees: false`, the worktree is kept intentionally. Merged-but-kept worktrees are still reconciled by the Phase 10 audit so they are never mistaken for active work.
 
 Merge conflicts in eval module files are additive — combine both sides.
 
@@ -475,10 +485,26 @@ Use `/loop 5m` to check on background agents. Merge experiments as they complete
 Agent(subagent_type="nerd:report-compiler", prompt="Compile findings from docs/research/results/ into docs/research/findings.md and per-experiment reports. Write theories, verdicts, and edges to project DAG: {dag_path}.", run_in_background=false)
 ```
 
-Present summary. Clean up remaining worktrees:
+Present summary. Reconcile and clean up worktrees.
+
+`git worktree prune` only removes worktrees whose directory is already gone — it does NOT remove a worktree still on disk for an already-merged branch. That gap is how stale worktrees accumulate and get re-run. Cross-check against merged branches first:
+
 ```bash
-git worktree prune
+git checkout "$CURRENT_BRANCH"
+AUTO_CLEANUP=$(grep -E '^auto_cleanup_worktrees:' .claude/nerd.local.md | sed 's/.*: *//')
+if [ "$AUTO_CLEANUP" != "false" ]; then
+  for wt in worktrees/nerd-*; do
+    [ -d "$wt" ] || continue
+    branch="nerd/$(basename "$wt" | sed 's/^nerd-//')"
+    if git branch --merged "$CURRENT_BRANCH" | grep -qx "  $branch"; then
+      git worktree remove "$wt"          # merged → safe to remove
+    fi
+  done
+fi
+git worktree prune                       # clean any remaining stale metadata
 ```
+
+When auditing whether a worktree represents in-progress work, ALWAYS check `git branch --merged` first — a worktree whose branch is merged is done, not active.
 
 ## Phase 11: Scout for Loop Candidates
 
