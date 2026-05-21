@@ -519,7 +519,9 @@ if [ "$AUTO_CLEANUP" != "false" ]; then
   for wt in worktrees/nerd-*; do
     [ -d "$wt" ] || continue
     branch="nerd/$(basename "$wt" | sed 's/^nerd-//')"
-    if git branch --merged "$CURRENT_BRANCH" | grep -qx "  $branch"; then
+    # Strip git branch's prefix column (* current, + worktree-checked-out, 2 spaces other)
+    # before matching — an experiment branch is checked out in its worktree, so it shows '+ '.
+    if git branch --merged "$CURRENT_BRANCH" | sed 's/^[*+ ] *//' | grep -qx "$branch"; then
       git worktree remove "$wt"          # merged → safe to remove
     fi
   done
