@@ -381,19 +381,33 @@ cp -c -r "$PROJECT_ROOT/{build_output_dir}/" "$PROJECT_ROOT/worktrees/nerd-{entr
 # cp --reflink=auto -r "$PROJECT_ROOT/{build_output_dir}/" "$PROJECT_ROOT/worktrees/nerd-{entry.id}/{build_output_dir}/" 2>/dev/null
 ```
 
+**Scheduled-mode harness gate (`NERD_SCHEDULED=1`):** read `has_harness` for each experiment from the lab-readiness report. For experiments where `has_harness: false`, do NOT launch a full autonomous executor — building the harness is the token-heavy phase that exhausts the executor's tool budget before it can measure (the recurring S025 failure). Instead, defer those experiments to a supervised run and continue with the `has_harness: true` ones. In interactive mode, all experiments run (the user can intervene if an executor stalls).
+
+**Two-phase executor split (separate tool budgets).** Harness-writing and the measurement run are launched as **two distinct executor invocations** so that exhausting the build budget never starves the measurement. They share state only through the committed worktree:
+
 ```
+# Phase build — write and COMMIT the harness, then stop.
 Agent(subagent_type="nerd:experiment-executor", prompt="
+phase=build
 Execute plan at docs/research/plans/{entry.id}-plan.md.
 Worktree: {path}. Language: {lang}. Tests: {test_cmd}.
-Extend the existing eval module with your experiment code. Commit conventionally.
-Write results to docs/research/results/{entry.id}-results.json.
+Extend the existing eval module with your experiment code and COMMIT it. Do NOT run the sweep.
+Report the commit SHA and the exact eval/metric command the run phase should execute.
 Before building, read .claude/nerd.local.md for build_cache_strategy and build_cache_env.
 If build_cache_env is set, prefix all build commands with it inline (e.g., for Rust: RUSTC_WRAPPER=sccache cargo build).
-If a build fails with cache, retry without it and add cache_fallback: true to results JSON.
+If a build fails with cache, retry without it and note cache_fallback: true.
+", run_in_background=true)
+
+# Phase run — the harness is committed; run the sweep with a fresh budget.
+Agent(subagent_type="nerd:experiment-executor", prompt="
+phase=run
+Execute plan at docs/research/plans/{entry.id}-plan.md. The harness is already committed in the worktree.
+Worktree: {path}. Language: {lang}. Tests: {test_cmd}.
+Re-read the plan and the committed harness, run the sweep, and write results to docs/research/results/{entry.id}-results.json. Commit the results. Do NOT rebuild the harness.
 ", run_in_background=true)
 ```
 
-Cap parallel agents at `max_parallel_experiments` from config.
+For `has_harness: true` experiments the harness already exists in the eval module on `$CURRENT_BRANCH`, so it is present in the worktree created from that branch (Phase 6c, above) — skip `phase=build` and launch `phase=run` directly. Cap parallel agents at `max_parallel_experiments` from config (count concurrently *running* phases, not invocations).
 
 ### Phase 6d: Intern Result Classification
 

@@ -123,9 +123,11 @@ Many experiments need an eval harness or CLI command to measure results. Verify 
 3. If it requires test data (e.g., `--dataset queries.json`), check if that file exists
 4. If it requires a prior export step, check if the export has been run
 
+**Set `has_harness` per experiment.** A finding has a harness when the eval module *already implements this experiment's metric* (the metric command runs and exercises real experiment code), not merely when an eval module exists. Set `has_harness: true` only if the experiment's specific metric command runs against existing code; set `has_harness: false` when the executor would have to build the harness from scratch. This field gates autonomous (scheduled-mode) execution — building a harness is the token-heavy phase that exhausts an executor's tool budget, so scheduled mode avoids launching full executors on `has_harness: false` experiments.
+
 Flag missing infrastructure:
 - "BLOCKER: Plan E003 requires `cargo run -- eval coherence --dataset test-queries.json` but `test-queries.json` does not exist. Need to run export first."
-- "SETUP NEEDED: No eval module exists. The experiment-executor will need to create one."
+- "SETUP NEEDED: No eval module exists. The experiment-executor will need to create one." (→ `has_harness: false`)
 
 ### Check 4: Tool Availability
 
@@ -328,6 +330,12 @@ Report format:
 checked_at: "{timestamp}"
 experiments_checked: [{ids}]
 status: ready|blocked|needs_setup
+# Per-experiment harness presence — read by the orchestrator to gate autonomous
+# (scheduled-mode) execution. has_harness:false means the executor would have to
+# BUILD the harness, which is the token-heavy phase that exhausts tool budget.
+has_harness:
+  E001: true
+  E002: false
 ---
 
 # Lab Readiness Report
@@ -337,11 +345,12 @@ status: ready|blocked|needs_setup
 - Ready: {N}
 - Blocked: {N}
 - Needs setup (auto-scaffolded): {N}
+- Pre-existing harness (no build phase needed): {N}
 
 ## Per-Experiment Status
 
 ### E001: {title} — READY
-All checks passed. Data accessible, config wired, eval command works.
+All checks passed. Data accessible, config wired, eval command works. `has_harness: true` (eval module already implements this experiment's metric).
 
 ### E002: {title} — SCAFFOLDED
 - [FIXED] Created data export: scripts/nerd-export-search-feedback.sh
