@@ -30,7 +30,7 @@ Based on the research focus, identify or create a measurable metric.
 The metric must be:
 1. **Automated** — a shell command that outputs a number with no human judgment
 2. **Deterministic** — running it twice on the same code produces the same result (within noise)
-3. **Sensitive** — small code changes produce detectable metric changes
+3. **Sensitive** — small code changes produce detectable metric changes. **Verify this mechanically, do not assume it.** Apply a known perturbation and confirm the metric *moves* (the same sensitivity smoke-test lab-tech runs in Check 3: for mechanical metrics, perturb and re-run; for semantic metrics that can't be auto-perturbed, require a known-good/known-bad fixture pair). A metric that does not respond to a known perturbation is a broken instrument — every iteration would look identical and the loop would hill-climb on noise. Treat an unverifiable or insensitive metric as a gate failure.
 4. **Fast** — runs in under 5 minutes (the loop needs hundreds of iterations)
 
 If the research focus cannot produce a metric meeting all four criteria, **stop here** and tell the user:

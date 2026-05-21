@@ -250,9 +250,10 @@ Combine parameter findings and performance findings into a unified candidate lis
 
 **Classify all findings by measurability:**
 
-Split into two groups:
-- **Experimentable**: Findings where a shell command can measure the effect (parameter sweeps, benchmarks, I/O counts). Has a valid `experiment_type` like `parameter_sweep`, `comparison`, `ablation`, `algo_benchmark`, `io_benchmark`, `memory_benchmark`, `cache_benchmark`, `network_benchmark`.
+Split into groups:
+- **Experimentable (provisional)**: Findings where a shell command can measure the effect (parameter sweeps, benchmarks, I/O counts). Has a valid `experiment_type` like `parameter_sweep`, `comparison`, `ablation`, `algo_benchmark`, `io_benchmark`, `memory_benchmark`, `cache_benchmark`, `network_benchmark`. **"Experimentable" here is provisional — it means a sweepable value exists, not that the metric is trusted.** Lab-tech (Phase 4.5) verifies the metric is actually *sensitive* to change; a finding whose metric does not respond to a known perturbation, or whose data prerequisites are unmet, is demoted to **instrument-blocked** and does NOT proceed to execution until the instrument is fixed.
 - **Analytical**: Findings where the only evaluation is human judgment or code review (has `experiment_type: "analytical"` or `measurability: "analytical"`).
+- **Instrument-blocked** (assigned by lab-tech, not at scan time): a finding that looked experimentable but has no trusted/sensitive metric or unmet data prerequisites. Surfaced as a blocker for the user to fix, not run.
 
 **Deduplication for performance findings:** Use `dedup_key` (format: `file:function:metric_type`). If the backlog already has an entry with the same dedup_key, skip it.
 
@@ -282,7 +283,7 @@ Which ones should the nerd investigate?
 
 Use AskUserQuestion to let the user select. Add selections to backlog.
 
-Experimentable findings proceed to Phase 3 (experiment design → worktree execution).
+Experimentable findings proceed to Phase 3 (experiment design → worktree execution) — but only those that survive lab-tech's sensitivity + data-prerequisite checks in Phase 4.5. Findings demoted to **instrument-blocked** there are pulled from the batch and surfaced to the user with the instrument fix needed.
 Analytical findings proceed to Phase 3 but use the plan-reviewer for **analytical review** — generating competing theories and reasoned recommendations without building sweep harnesses.
 
 ## Phase 3: Experiment Design
