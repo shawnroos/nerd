@@ -1,6 +1,6 @@
 ---
 name: nerd-this
-description: "Context-scoped experiment discovery. Researches only what you're working on right now — infers scope from your current branch, session files, and conversation topics, then groups findings into research themes. Use instead of /nerd when you want focused research on your current work. Use with no args to auto-scope from context, or pass a topic to narrow further (e.g., /nerd-this auth flow)."
+description: "Context-scoped experiments. Researches only what you're working on right now — infers scope from your current branch, session files, and conversation topics, then groups findings into research themes and runs falsifiable experiments (numeric metric required) on them. Use instead of /nerd when you want focused research on your current work. Use with no args to auto-scope from context, or pass a topic to narrow further (e.g., /nerd-this auth flow)."
 argument-hint: "[topic]"
 allowed-tools: "Read,Write,Edit,Bash,Glob,Grep,Agent,AskUserQuestion"
 ---

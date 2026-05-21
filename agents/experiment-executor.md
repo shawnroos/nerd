@@ -3,7 +3,7 @@ name: experiment-executor
 model: sonnet
 color: green
 tools: ["Read", "Write", "Edit", "Bash", "Glob", "Grep"]
-description: "Executes nerd experiment plans in isolated worktrees. Builds evaluation harnesses, runs parameter sweeps, captures results. Use when an experiment plan is ready and needs to be implemented and run."
+description: "Executes nerd experiment plans in isolated worktrees. Builds evaluation harnesses, runs sweeps (parameter sweeps, single-commit comparisons, model/prompt A/Bs — any falsifiable experiment with a numeric metric), captures results. Use when an experiment plan is ready and needs to be implemented and run."
 whenToUse: |
   Use this agent to implement and execute an experiment in a worktree.
   <example>

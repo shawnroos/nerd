@@ -1,13 +1,13 @@
 ---
 name: nerd
-description: "Let the nerd loose on your codebase. Obsessively finds every tunable parameter, designs rigorous experiments, runs them in worktrees while you sleep, and delivers findings. Use with no args to nerd out on everything, or pass a topic to focus (e.g., /nerd search relevance)."
+description: "Let the nerd loose on your codebase. Designs and runs rigorous experiments — any falsifiable question with a measurable numeric metric, from parameter sweeps to single-commit hypothesis tests — in worktrees while you sleep, and delivers findings. Use with no args to nerd out on everything, or pass a topic to focus (e.g., /nerd search relevance)."
 argument-hint: "[topic]"
 allowed-tools: "Read,Write,Edit,Bash,Glob,Grep,Agent,AskUserQuestion"
 ---
 
 # nerd — Obsessive Codebase Research Pipeline
 
-Turn the nerd loose. It will find every hardcoded threshold, magic number, and untested heuristic in your codebase, then systematically prove whether they're optimal or not.
+Turn the nerd loose. It runs any falsifiable experiment that produces a measurable number against your codebase — proving whether a change helps, hurts, or does nothing. Finding every hardcoded threshold, magic number, and untested heuristic and proving whether they're optimal is one thing it does well; testing whether a specific commit caused a regression, or whether one model/prompt beats another, is the same machinery pointed at a different question.
 
 ## Input
 

@@ -2,7 +2,11 @@
 
 **Your codebase has hundreds of hardcoded thresholds, magic numbers, and untested heuristics. You don't know which ones matter. The nerd does.**
 
-A Claude Code plugin that obsessively researches your codebase overnight — finding every tunable parameter, designing rigorous experiments with competing theories, running them in isolated worktrees, and delivering findings that tell you what to keep, what to change, and what to rearchitect. It remembers what it learned, so it never wastes time re-testing what it already proved.
+That's the hook — but it's one mode, not the whole job. The nerd runs **any falsifiable experiment that produces a measurable number** against your codebase: parameter sweeps, single-commit hypothesis tests ("did this commit cause the regression?"), model/prompt/algorithm comparisons. If you can phrase it as a question a numeric metric can answer, the nerd can run it.
+
+A Claude Code plugin that obsessively researches your codebase overnight — designing rigorous experiments with competing theories, running them in isolated worktrees, and delivering findings that tell you what to keep, what to change, and what to rearchitect. It remembers what it learned, so it never wastes time re-testing what it already proved.
+
+**One requirement:** the experiment must have a *trusted numeric metric*. Qualitative or human-judged questions ("does this read better?") are outside what the nerd runs — it will tell you so rather than fake a verdict.
 
 ## Why
 
@@ -36,7 +40,7 @@ claude plugin install nerd
 
 ### `/nerd` — Broad Research
 
-Scans your codebase for every tunable parameter, designs experiments with competing theories, validates the lab environment, runs them in parallel, and delivers structured findings.
+Scans your codebase for every tunable parameter and other sweepable experiment targets, designs experiments with competing theories, validates the lab environment (including whether the metric is actually sensitive to change), runs them in parallel, and delivers structured findings.
 
 ```
 /nerd "search ranking"
@@ -70,7 +74,7 @@ Research just what you're working on right now. Infers scope from your current b
 ```
 /nerd-this auth flow
   ├─ Infers scope from git diff + session context
-  ├─ Groups parameters into research themes
+  ├─ Groups findings into research themes
   └─ Runs the full experiment pipeline on selected themes
 ```
 
@@ -83,6 +87,7 @@ This is the core insight. Most experiment tools ask "is this parameter optimal?"
 | **Parameter is wrong** | A different value would improve the metric |
 | **Model is wrong** | The mathematical model is inappropriate — try a different one entirely |
 | **Feature is unnecessary** | Removing the feature causes no degradation |
+| **Metric is wrong** | We're optimizing the wrong thing — the measurement itself may be the problem |
 | **Data is the bottleneck** | The parameter doesn't matter because the input data is the real problem |
 | **Architecture is the bottleneck** | No parameter value can fix this — the architecture needs to change |
 
