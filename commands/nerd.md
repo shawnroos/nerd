@@ -175,6 +175,20 @@ git branch --show-current
 
 Store: language, test command, current branch from the local config.
 
+**Guard: experiments must not run off main.**
+
+```bash
+CURRENT_BRANCH=$(git branch --show-current)
+DEFAULT_BRANCH=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@')
+[ -z "$DEFAULT_BRANCH" ] && DEFAULT_BRANCH=$(git rev-parse --verify origin/main >/dev/null 2>&1 && echo "main" || echo "master")
+```
+
+If `$CURRENT_BRANCH` equals `$DEFAULT_BRANCH` (or is empty/detached):
+- In interactive mode: Use AskUserQuestion: "You're on {default_branch}. Experiments create worktrees and merge results back into your current branch — running off main risks polluting it with experiment branches and partial results. Create a branch first? (suggest: `git checkout -b nerd/research-{date}`)"
+- In scheduled mode: Auto-create `nerd/scheduled-{date}` and switch to it.
+
+Store: `$CURRENT_BRANCH`, `$DEFAULT_BRANCH`.
+
 ## Phase 1: Check the Backlog
 
 ```bash
@@ -354,8 +368,8 @@ For each `planned` experiment:
 
 ```bash
 PROJECT_ROOT="$(pwd)"
-git worktree add worktrees/nerd-{entry.id} --detach HEAD
-cd worktrees/nerd-{entry.id} && git checkout -b nerd/{entry.id}
+# Create worktree from the CURRENT branch, not main — experiments must branch from your working context
+git worktree add worktrees/nerd-{entry.id} -b nerd/{entry.id} "$CURRENT_BRANCH"
 cd "$PROJECT_ROOT"
 ```
 
@@ -387,9 +401,11 @@ After each experiment-executor completes and writes results JSON, if `INTERN_AVA
 
 ### Phase 6e: Merge Completed Experiments
 
-As each agent completes, merge immediately:
+As each agent completes, merge back into the **source branch** (the branch you were on when `/nerd` started, NOT main):
 
 ```bash
+# Ensure we're on the source branch
+git checkout "$CURRENT_BRANCH"
 git merge nerd/{entry.id} --no-edit
 {test_command}  # verify tests pass
 ```
