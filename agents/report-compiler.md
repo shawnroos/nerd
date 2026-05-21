@@ -183,9 +183,12 @@ For **each competing theory** in **each experiment plan**, create a theory node:
   "codebase_hash": "{8-char hash}",
   "created_at": "{ISO 8601 timestamp}",
   "status": "active",
+  "research_type": "{parameter | performance | experiment}",
   "tags": ["{category tags — e.g., 'entity-resolution', 'data-bottleneck'}"]
 }
 ```
+
+Set `research_type` from the experiment's nature: `parameter` for a tunable-value sweep, `performance` for a perf benchmark (carry through the finding's `research_type: performance` when present), `experiment` for any other falsifiable experiment with a numeric metric (model/prompt comparison, ablation) that fits neither. The finding's own `research_type` field (e.g., perf findings carry `research_type: "performance"`) is the upstream source — propagate it.
 
 If the theory was spawned by a prior verdict, add `"spawned_from": "{verdict_id}"`.
 
