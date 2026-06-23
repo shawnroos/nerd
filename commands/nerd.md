@@ -206,6 +206,14 @@ Store: the re-captured `$CURRENT_BRANCH`, `$DEFAULT_BRANCH`.
 cat .claude/nerd.local.md 2>/dev/null
 ```
 
+**Resurface deferred experiments (closes the breadcrumb loop).** Scheduled runs append experiments they couldn't run (e.g. `has_harness: false`) to `docs/research/deferred-experiments.md`. Read it and fold any still-relevant entries into this run's candidate set so a deferral is a *postponement*, not a silent drop — this is the consumer for the breadcrumb Phase 6c writes:
+
+```bash
+cat docs/research/deferred-experiments.md 2>/dev/null
+```
+
+For each deferred entry whose blocking reason may now be resolvable (e.g. an interactive run can build the harness a scheduled run skipped), add it to the backlog as a candidate; drop entries that are stale or already completed in the DAG.
+
 If backlog has `proposed` entries and no topic: skip to Phase 3 — the nerd has already been collecting findings.
 If backlog empty or topic specified: continue to Phase 2.
 
@@ -376,27 +384,7 @@ If no eval module exists (check first — lab-tech in Phase 5 does NOT create it
 
 ### Phase 6c: Launch Experiment Agents
 
-For each `planned` experiment:
-
-```bash
-PROJECT_ROOT="$(pwd)"
-# Safety: never create a worktree off an empty/detached branch (the setup guard should have
-# caught this, but a partial/resumed run can land here detached).
-if [ -z "$CURRENT_BRANCH" ]; then
-  echo "ABORT: CURRENT_BRANCH is empty (detached HEAD). Check out a branch before running experiments." >&2
-  exit 1
-fi
-# If a branch from a prior partial batch already exists, suffix to avoid 'git worktree add' failing.
-WT_BRANCH="nerd/{entry.id}"
-if git rev-parse --verify "$WT_BRANCH" >/dev/null 2>&1; then
-  WT_BRANCH="nerd/{entry.id}-$(git rev-parse --short HEAD)"
-fi
-# Create worktree from the CURRENT branch, not main — experiments must branch from your working context
-git worktree add worktrees/nerd-{entry.id} -b "$WT_BRANCH" "$CURRENT_BRANCH"
-cd "$PROJECT_ROOT"
-```
-
-Use `$WT_BRANCH` (the actually-created branch name) in this experiment's later merge and cleanup steps, not the literal `nerd/{entry.id}`, since a collision may have suffixed it.
+For each `planned` experiment, create the worktree by following **`skills/worktree-lifecycle` §Create** (canonical procedure — run its bash verbatim; it handles the empty/detached-HEAD guard and the branch-collision suffix). It sets `$WT_BRANCH` to the actually-created branch name; use that (not the literal `nerd/{entry.id}`) in this experiment's later merge and cleanup steps.
 
 If `artifact_copy` strategy, clone build artifacts using copy-on-write. The build output directory varies by language (e.g., `target/` for Rust, `node_modules/.cache` for JS, `__pycache__` for Python):
 ```bash
@@ -426,16 +414,29 @@ If build_cache_env is set, prefix all build commands with it inline (e.g., for R
 If a build fails with cache, retry without it and note cache_fallback: true.
 ", run_in_background=false)
 
-# Gate: only proceed to run if build reported a commit SHA AND the worktree actually advanced.
-# If phase=build failed or committed nothing, mark the experiment failed and SKIP phase=run —
-# a run against an uncommitted/empty harness produces a garbage verdict.
-# Verify in the worktree: `git -C {path} log -1 --oneline` shows the harness commit.
+```
 
+**Gate between the phases (run this — do not skip).** After `phase=build` returns, confirm the harness was actually committed before launching `phase=run`. This is an enforced step, not a hope: a `phase=run` against an uncommitted/empty harness produces a garbage verdict.
+
+```bash
+# Capture the worktree HEAD before/after isn't needed — just confirm a harness commit exists now.
+BUILD_HEAD=$(git -C "{path}" rev-parse HEAD 2>/dev/null)
+if [ -z "$BUILD_HEAD" ] || ! git -C "{path}" log -1 --oneline | grep -qiE 'eval|harness|{entry.id}'; then
+  echo "SKIP phase=run for {entry.id}: build phase left no harness commit — mark experiment failed." >&2
+  # do NOT launch phase=run; record failed and move on.
+else
+  : # harness committed → launch phase=run below
+fi
+```
+
+Only if the gate passed:
+
+```
 # Phase run — harness is now committed; run the sweep with a fresh budget. Safe to background
 # (and to parallelize across DIFFERENT experiments) now that this experiment's build is done.
 Agent(subagent_type="nerd:experiment-executor", prompt="
 phase=run
-Execute plan at docs/research/plans/{entry.id}-plan.md. The harness is already committed in the worktree (build commit: {build_result.sha}).
+Execute plan at docs/research/plans/{entry.id}-plan.md. The harness is already committed in the worktree (build commit: $BUILD_HEAD).
 Worktree: {path}. Language: {lang}. Tests: {test_cmd}.
 Re-read the plan and the committed harness, run the sweep, and write results to docs/research/results/{entry.id}-results.json. Commit the results. Do NOT rebuild the harness.
 ", run_in_background=true)
@@ -449,47 +450,7 @@ After each experiment-executor completes and writes results JSON, if `INTERN_AVA
 
 ### Phase 6e: Merge Completed Experiments
 
-As each agent completes, merge back into the **source branch** (the re-captured `$CURRENT_BRANCH` from setup — the branch you were on after the off-main guard, NOT main). Process completed experiments **one at a time** (serialize the merge step even though executors run in parallel) — the `reset`/`abort` recovery below assumes the merge it's undoing is the most recent commit on the source branch.
-
-```bash
-# Source branch must be valid and the tree clean before switching/merging.
-if [ -z "$CURRENT_BRANCH" ]; then echo "ABORT: empty CURRENT_BRANCH" >&2; exit 1; fi
-git checkout "$CURRENT_BRANCH"
-if [ -n "$(git status --porcelain)" ]; then
-  echo "WARN: working tree dirty on $CURRENT_BRANCH — skipping merge of $WT_BRANCH to avoid clobbering; mark deferred." >&2
-else
-  if git merge "$WT_BRANCH" --no-edit; then
-    {test_command}  # merge clean → verify tests
-    if [ $? -ne 0 ]; then
-      git reset --hard HEAD~1   # tests failed AFTER a clean merge → undo the merge commit
-      # mark failed; KEEP the worktree (debuggable state)
-    fi
-  else
-    git merge --abort           # merge CONFLICTED → abort, do NOT reset --hard (there is no merge commit to drop)
-    # mark failed; KEEP the worktree
-  fi
-fi
-```
-
-**Why two recovery paths:** a *conflicted* merge leaves no merge commit, so `git reset --hard HEAD~1` would destroy a real prior commit on the source branch — use `git merge --abort` for conflicts and reserve `reset --hard HEAD~1` for the "merge succeeded but tests failed" case only.
-
-If the merge succeeded and tests passed, clean up the worktree — gated on the `auto_cleanup_worktrees` config flag (parsed fail-safe: only an explicit affirmative removes; anything else keeps):
-
-```bash
-# Normalize: take value after the colon, strip inline comment, quotes, and whitespace, lowercase.
-AUTO_CLEANUP=$(grep -E '^auto_cleanup_worktrees:' .claude/nerd.local.md 2>/dev/null \
-  | head -1 | sed 's/^[^:]*://; s/#.*//; s/["'\'' ]//g' | tr '[:upper:]' '[:lower:]')
-# Default ON when the key is absent entirely; OFF for any non-affirmative explicit value.
-if [ -z "$AUTO_CLEANUP" ] || [ "$AUTO_CLEANUP" = "true" ] || [ "$AUTO_CLEANUP" = "yes" ] || [ "$AUTO_CLEANUP" = "1" ]; then
-  if git worktree remove worktrees/nerd-{entry.id}; then
-    git branch -d "$WT_BRANCH" 2>/dev/null   # -d only deletes fully-merged branches; safe
-  fi
-fi
-```
-
-Note the default-ON applies only when the key is *missing*; an explicit `false`, `no`, `0`, or anything non-affirmative (including a commented or quoted value) keeps the worktree. When kept, the worktree is reconciled by the Phase 8 audit so it is never mistaken for active work.
-
-Merge conflicts in eval module files are additive — combine both sides.
+As each agent completes, merge it back by following **`skills/worktree-lifecycle` §Merge** (canonical procedure — run its bash verbatim). It merges into the re-captured `$CURRENT_BRANCH`, serializes per-experiment, skips on a dirty tree, uses `git merge --abort` for conflicts vs `reset --hard HEAD~1` only for clean-merge-then-tests-fail, and on success cleans up via the fail-safe cleanup gate. Merge conflicts in eval-module files are additive — combine both sides.
 
 ## Phase 7: Monitor
 
@@ -501,36 +462,7 @@ Use `/loop 5m` to check on background agents. Merge experiments as they complete
 Agent(subagent_type="nerd:report-compiler", prompt="Compile findings from docs/research/results/ into docs/research/findings.md and per-experiment reports. Write theories, verdicts, and edges to project DAG: {dag_path}.", run_in_background=false)
 ```
 
-Present summary. Reconcile and clean up worktrees.
-
-`git worktree prune` only removes worktrees whose directory is already gone — it does NOT remove a worktree that's still on disk for a branch that was already merged. That gap is how stale worktrees accumulate and get re-run (a merged experiment's worktree looks "active" to the next batch). So cross-check against merged branches first:
-
-```bash
-if [ -z "$CURRENT_BRANCH" ]; then echo "ABORT: empty CURRENT_BRANCH — cannot reconcile worktrees" >&2; exit 1; fi
-git checkout "$CURRENT_BRANCH"
-# Same fail-safe parse as Phase 6e: default ON when key absent, OFF for any non-affirmative value.
-AUTO_CLEANUP=$(grep -E '^auto_cleanup_worktrees:' .claude/nerd.local.md 2>/dev/null \
-  | head -1 | sed 's/^[^:]*://; s/#.*//; s/["'\'' ]//g' | tr '[:upper:]' '[:lower:]')
-if [ -z "$AUTO_CLEANUP" ] || [ "$AUTO_CLEANUP" = "true" ] || [ "$AUTO_CLEANUP" = "yes" ] || [ "$AUTO_CLEANUP" = "1" ]; then
-  # Pre-compute the merged-branch set once (prefix column stripped: * current, + worktree-checked-out, 2 spaces other).
-  MERGED=$(git branch --merged "$CURRENT_BRANCH" | sed 's/^[*+ ] *//')
-  for wt in worktrees/nerd-*; do
-    [ -d "$wt" ] || continue
-    branch="nerd/$(basename "$wt" | sed 's/^nerd-//')"
-    if echo "$MERGED" | grep -qx "$branch"; then
-      if git worktree remove "$wt"; then     # merged → safe to remove
-        git branch -d "$branch" 2>/dev/null
-      else
-        # Don't swallow the failure — a merged-but-unclean worktree left on disk gets re-run next batch.
-        echo "WARN: '$wt' is merged but could not be removed (likely untracked/uncommitted files). Resolve manually: git worktree remove --force '$wt'" >&2
-      fi
-    fi
-  done
-fi
-git worktree prune                       # clean any remaining stale metadata
-```
-
-When auditing whether a worktree represents in-progress work, ALWAYS check `git branch --merged` first — a worktree whose branch is merged is done, not active, regardless of whether its directory still exists.
+Present summary. Then reconcile and clean up worktrees by following **`skills/worktree-lifecycle` §Reconcile** (canonical procedure — run its bash verbatim). It removes only worktrees whose branch is already merged into `$CURRENT_BRANCH` (checking `git branch --merged`, not just `git worktree prune`), deletes the merged branches, surfaces any worktree it couldn't remove instead of swallowing the error, and is gated by the same fail-safe cleanup flag.
 
 ## Phase 9: Training Data Extraction (ALWAYS runs)
 

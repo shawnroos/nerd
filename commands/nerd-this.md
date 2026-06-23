@@ -460,12 +460,7 @@ If no eval module exists, create a scaffold appropriate to the project language.
 
 ### 8.2: Launch Experiment Agents
 
-For each `planned` experiment:
-
-```bash
-# Create worktree from the CURRENT branch, not main — experiments must branch from your working context
-git worktree add worktrees/nerd-{entry.id} -b nerd/{entry.id} "$CURRENT_BRANCH"
-```
+For each `planned` experiment, create the worktree by following **`skills/worktree-lifecycle` §Create** (canonical procedure — run its bash verbatim; handles the empty/detached-HEAD guard and branch-collision suffix). Use the `$WT_BRANCH` it sets in this experiment's later merge/cleanup.
 
 ```
 Agent(subagent_type="nerd:experiment-executor", prompt="
@@ -483,42 +478,7 @@ Cap parallel agents at `max_parallel_experiments` from config.
 
 ### 8.3: Merge Completed Experiments
 
-As each agent completes, merge back into the **source branch** (the re-captured `$CURRENT_BRANCH`, NOT main). Serialize the merge step across experiments — the recovery below assumes the merge it undoes is the latest commit.
-
-```bash
-if [ -z "$CURRENT_BRANCH" ]; then echo "ABORT: empty CURRENT_BRANCH" >&2; exit 1; fi
-git checkout "$CURRENT_BRANCH"
-if [ -n "$(git status --porcelain)" ]; then
-  echo "WARN: working tree dirty on $CURRENT_BRANCH — skipping merge to avoid clobbering; mark deferred." >&2
-else
-  if git merge nerd/{entry.id} --no-edit; then
-    {test_command}  # merge clean → verify tests
-    if [ $? -ne 0 ]; then
-      git reset --hard HEAD~1   # tests failed AFTER a clean merge → undo the merge commit; KEEP worktree
-    fi
-  else
-    git merge --abort           # merge CONFLICTED → abort (no merge commit to reset); KEEP worktree
-  fi
-fi
-```
-
-A conflicted merge leaves no merge commit, so `reset --hard HEAD~1` would drop a real prior commit — use `git merge --abort` for conflicts and reserve `reset --hard HEAD~1` for "merged clean but tests failed."
-
-If the merge succeeded and tests passed, clean up the worktree — gated on the `auto_cleanup_worktrees` flag (fail-safe: only an explicit affirmative removes):
-
-```bash
-AUTO_CLEANUP=$(grep -E '^auto_cleanup_worktrees:' .claude/nerd.local.md 2>/dev/null \
-  | head -1 | sed 's/^[^:]*://; s/#.*//; s/["'\'' ]//g' | tr '[:upper:]' '[:lower:]')
-if [ -z "$AUTO_CLEANUP" ] || [ "$AUTO_CLEANUP" = "true" ] || [ "$AUTO_CLEANUP" = "yes" ] || [ "$AUTO_CLEANUP" = "1" ]; then
-  if git worktree remove worktrees/nerd-{entry.id}; then
-    git branch -d "nerd/{entry.id}" 2>/dev/null
-  fi
-fi
-```
-
-Default-ON applies only when the key is *missing*; an explicit `false`/`no`/`0`/commented/quoted value keeps the worktree. When kept, it is reconciled by the Phase 10 audit so it is never mistaken for active work.
-
-Merge conflicts in eval module files are additive — combine both sides.
+As each agent completes, merge it back by following **`skills/worktree-lifecycle` §Merge** (canonical procedure — run its bash verbatim). It merges into the re-captured `$CURRENT_BRANCH`, serializes per-experiment, skips on a dirty tree, uses `git merge --abort` for conflicts vs `reset --hard HEAD~1` only for clean-merge-then-tests-fail, and on success cleans up via the fail-safe cleanup gate. Merge conflicts in eval-module files are additive — combine both sides.
 
 ## Phase 9: Monitor
 
@@ -530,33 +490,7 @@ Use `/loop 5m` to check on background agents. Merge experiments as they complete
 Agent(subagent_type="nerd:report-compiler", prompt="Compile findings from docs/research/results/ into docs/research/findings.md and per-experiment reports. Write theories, verdicts, and edges to project DAG: {dag_path}.", run_in_background=false)
 ```
 
-Present summary. Reconcile and clean up worktrees.
-
-`git worktree prune` only removes worktrees whose directory is already gone — it does NOT remove a worktree still on disk for an already-merged branch. That gap is how stale worktrees accumulate and get re-run. Cross-check against merged branches first:
-
-```bash
-if [ -z "$CURRENT_BRANCH" ]; then echo "ABORT: empty CURRENT_BRANCH — cannot reconcile worktrees" >&2; exit 1; fi
-git checkout "$CURRENT_BRANCH"
-AUTO_CLEANUP=$(grep -E '^auto_cleanup_worktrees:' .claude/nerd.local.md 2>/dev/null \
-  | head -1 | sed 's/^[^:]*://; s/#.*//; s/["'\'' ]//g' | tr '[:upper:]' '[:lower:]')
-if [ -z "$AUTO_CLEANUP" ] || [ "$AUTO_CLEANUP" = "true" ] || [ "$AUTO_CLEANUP" = "yes" ] || [ "$AUTO_CLEANUP" = "1" ]; then
-  MERGED=$(git branch --merged "$CURRENT_BRANCH" | sed 's/^[*+ ] *//')
-  for wt in worktrees/nerd-*; do
-    [ -d "$wt" ] || continue
-    branch="nerd/$(basename "$wt" | sed 's/^nerd-//')"
-    if echo "$MERGED" | grep -qx "$branch"; then
-      if git worktree remove "$wt"; then     # merged → safe to remove
-        git branch -d "$branch" 2>/dev/null
-      else
-        echo "WARN: '$wt' is merged but could not be removed (untracked/uncommitted files). Resolve manually: git worktree remove --force '$wt'" >&2
-      fi
-    fi
-  done
-fi
-git worktree prune                       # clean any remaining stale metadata
-```
-
-When auditing whether a worktree represents in-progress work, ALWAYS check `git branch --merged` first — a worktree whose branch is merged is done, not active.
+Present summary. Then reconcile and clean up worktrees by following **`skills/worktree-lifecycle` §Reconcile** (canonical procedure — run its bash verbatim). It removes only worktrees whose branch is already merged into `$CURRENT_BRANCH` (checking `git branch --merged`, not just `git worktree prune`), deletes the merged branches, surfaces any worktree it couldn't remove instead of swallowing the error, and is gated by the same fail-safe cleanup flag.
 
 ## Phase 11: Scout for Loop Candidates
 
