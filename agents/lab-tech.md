@@ -157,6 +157,38 @@ A metric command that runs and emits a number is not enough: if the metric does 
 
 A finding whose metric is insensitive (BLOCKER) or whose sensitivity cannot be verified (SETUP NEEDED) is NOT classified "experimentable" — it is instrument-blocked until the instrument is trusted. You MAY reuse one harness-setup pass to emit both the 8b determinism verdict and this sensitivity verdict, but keep them as two separate verdicts — never merge them into one "metric health" check.
 
+**Judge-instrument gate — when an experiment declares `instrument: judge_rubric`.**
+
+A rubric-judged experiment uses an LLM judge against a pre-registered rubric instead of a numeric metric command. The judge *is* the instrument, so it must earn trust through a gate at least as strict as the numeric sensitivity smoke-test above — same `[OK]/[FIXED]/[BLOCKER]/[SETUP NEEDED]` vocabulary, same "instrument-blocked until trusted" outcome. This gate runs *instead of* the numeric sensitivity check (Phase 2c routing selects exactly one); the two never both fire on the same experiment.
+
+Run three sub-checks in fixed order — cheapest first, so a broken rubric short-circuits before expensive judge calls (hash read < N=6 fixture calls < N≥10 triangle calls). The first failure stops the gate with its specific BLOCKER.
+
+1. **Hash-lock (R5 — strict pre-registration).** Resolve the rubric: a bare library id → `.nerd/rubrics/<id>.yaml`; an inline path (`./…` or containing `/`) is read directly. Compute the sha256 of the canonicalized YAML. If the orchestrator's pre-flight context injected a prior hash for this rubric (a `Rubric on file: <id> hash=<sha256> source=<path>` line — see Read path below), compare:
+   - First run (no prior hash on file): record the hash, emit `[OK] rubric <id> hash-locked (<8-char prefix>…).`
+   - Match: `[OK] rubric <id> hash unchanged since pre-registration.`
+   - Mismatch: `[BLOCKER] rubric_hash_mismatch: rubric "<id>" was hash-locked at <prior 8-char>… ; current content hashes to <new 8-char>…. There is no in-band amendment — copy .nerd/rubrics/<id>.yaml to a new id, edit, and re-run with rubric:<new-id>.`
+2. **Fixture-pair sensitivity (R1 — can the judge tell good from bad?).** The judge-side analogue of the numeric sensitivity smoke-test: a judge that scores known-good and known-bad stimuli the same is a flat instrument. Load `anchors: {good, bad}` from the experiment plan (preferred) or the rubric's `default_anchors` (fallback, R8):
+   - Neither present: `[BLOCKER] anchors_missing: rubric "<id>" needs anchors.good and anchors.bad (in the experiment plan or the rubric's default_anchors) plus min_anchor_separation, so the judge's discrimination can be verified before the sweep.`
+   - Run the declared judge N≥3 times on each anchor; take the mean score on the rubric's headline criterion. If `mean(good) − mean(bad) < min_anchor_separation`: `[BLOCKER] judge_instrument_insensitive: <judge_id> separated the anchors by <delta> on <headline_criterion>, below the required <min_anchor_separation>. The judge cannot discriminate this rubric's good/bad cases — refine the anchors or use a more capable judge.`
+   - Separates adequately: `[OK] judge separates anchors by <delta> on <headline_criterion> (≥ <min_anchor_separation>).`
+3. **Triangle discriminability, cached (R2).** A blind three-item test confirms the judge attends to the rubric's headline criterion rather than a confound (e.g. "longer text = more different"). Consult the orchestrator-injected triangle-verdict block (Read path below) for a verdict matching `(rubric_hash, judge_id)`:
+   - Cache hit, `result: PASS`, `verified_at` within the rubric's `triangle_cache_days` (default 30): `[OK] triangle cached (verified <date>, <correct>/<total> trials).` Skip the run.
+   - Cache hit, `result: FAIL` (still fresh): `[BLOCKER] judge_fails_triangle_discriminability (cached <date>): <judge_id> identified the odd stimulus in only <correct>/<total> trials — at or near chance. Refine the rubric or use a more capable judge.`
+   - Cache miss or stale: run the triangle. Generate N≥10 trials, half `{good, good, bad}` and half `{good, bad, bad}`; present the three stimuli labeled A/B/C in randomized order; ask the judge which of A/B/C is most different on `<headline_criterion>`; record the single-letter answer. Score ≥80% correct (binomial p<0.05) → PASS, else FAIL. Emit the verdict as a structured block (see Output → Write path) for report-compiler to persist; emit `[OK] triangle PASS (<correct>/<total>, verified <date>)` on PASS or the `[BLOCKER] judge_fails_triangle_discriminability` above on FAIL. (The exact triangle prompt wording is written against the real anchor fixtures at run time; this gate specifies only the structural contract — blind three-item, headline-criterion question, single-letter answer.)
+
+**Read path (honoring the DAG filtered-markdown rule).** lab-tech never parses raw DAG JSON. The orchestrator (`/nerd` Phase 4.5) queries the DAG for prior `rubric` and `triangle_verdict` nodes relevant to the batch and injects them into this agent's context as two line types:
+
+```
+Rubric on file: portrait-v3 hash=<full-sha256> source=.nerd/rubrics/portrait-v3.yaml
+Triangle verdicts on file: (rubric_hash=<full-sha256>, judge=claude-opus-4-7) PASS 13/15 verified 2026-05-12; (rubric_hash=<full-sha256>, judge=claude-opus-4-7) FAIL 6/15 verified 2026-04-30
+```
+
+If no such block is present, treat every check as a first run (no prior hash, no cached verdict). Match `rubric_hash` byte-for-byte against the freshly computed file hash — the injected hashes are full sha256, not prefixes.
+
+**Write path (single-writer invariant).** lab-tech is a markdown producer, not a DAG writer (only report-compiler and loop-scout write the DAG). When a fresh triangle test runs, emit its verdict into this readiness report as a structured block so report-compiler can persist a `triangle_verdict` node at batch-end (see Output).
+
+A judge-rubric experiment that fails any sub-check is instrument-blocked (exactly like a numeric experiment that fails sensitivity) — it does not proceed to the executor.
+
 ### Check 4: Tool Availability
 
 Check that required external tools are installed:
@@ -364,6 +396,16 @@ status: ready|blocked|needs_setup
 has_harness:
   E001: true
   E002: false
+# Per-experiment rubric-instrument provenance (judge_rubric experiments only).
+# Read by report-compiler at batch-end to write rubric / triangle_verdict DAG nodes
+# and rubric provenance on verdict nodes. Omit entirely for numeric experiments.
+rubric_instrument:
+  E004:
+    instrument_kind: judge_rubric
+    rubric_id: portrait-v3
+    rubric_hash: "<full-sha256>"
+    judge_id: claude-opus-4-7
+    triangle_verdict_id: TRI001   # present when a cached or freshly-run triangle verdict applies
 ---
 
 # Lab Readiness Report
@@ -393,6 +435,19 @@ All checks passed. Data accessible, config wired, eval command works. `has_harne
   - Sweeping this parameter will produce identical results
   - Fix: Wire the field into the scoring function at src/search/rank.rs:104
 - Status: Cannot run until field is wired
+
+### E004: {title} — READY (rubric-judged)
+- [OK] rubric portrait-v3 hash-locked (a1b2c3d4…)
+- [OK] judge separates anchors by 1.2 on subject_identity (≥ 1.0)
+- [OK] triangle PASS (13/15, verified 2026-06-23)
+- Instrument: judge_rubric; judge: claude-opus-4-7
+- A fresh triangle ran this batch, so emit the verdict block below for report-compiler to persist:
+
+```
+triangle_verdict: { rubric_hash: <full-sha256>, judge_id: claude-opus-4-7, correct_count: 13, total_trials: 15, result: PASS, verified_at: 2026-06-23T09:00:00Z }
+```
+
+(On a cache hit no block is emitted — the verdict already lives in the DAG and was read back via the orchestrator's injected `Triangle verdicts on file:` line.)
 
 ## Infrastructure Created
 - scripts/nerd-export-search-feedback.sh — exports search_feedback table from WAL-mode DB
