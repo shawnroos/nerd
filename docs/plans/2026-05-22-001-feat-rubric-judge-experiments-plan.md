@@ -1,7 +1,7 @@
 ---
 title: "feat: admit rubric-judged experiments to /nerd via judge-as-instrument gate"
 type: feat
-status: active
+status: completed
 date: 2026-05-22
 deepened: 2026-06-23
 origin: docs/brainstorms/2026-05-22-non-numeric-judge-experiments-requirements.md
