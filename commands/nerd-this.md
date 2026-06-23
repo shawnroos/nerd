@@ -1,6 +1,6 @@
 ---
 name: nerd-this
-description: "Context-scoped experiment discovery. Researches only what you're working on right now — infers scope from your current branch, session files, and conversation topics, then groups findings into research themes. Use instead of /nerd when you want focused research on your current work. Use with no args to auto-scope from context, or pass a topic to narrow further (e.g., /nerd-this auth flow)."
+description: "Context-scoped experiments. Researches only what you're working on right now — infers scope from your current branch, session files, and conversation topics, then groups findings into research themes and runs falsifiable experiments (numeric metric required) on them. Use instead of /nerd when you want focused research on your current work. Use with no args to auto-scope from context, or pass a topic to narrow further (e.g., /nerd-this auth flow)."
 argument-hint: "[topic]"
 allowed-tools: "Read,Write,Edit,Bash,Glob,Grep,Agent,AskUserQuestion"
 ---
@@ -12,6 +12,29 @@ Research what you're working on right now. Instead of scanning the entire codeba
 ## Input
 
 <user_topic>$ARGUMENTS</user_topic>
+
+## Brief Mode Detection (sweep-of-one)
+
+Before scope inference, check whether `$ARGUMENTS` is a **structured experiment brief** rather than a free-text topic. A brief tests one specific, falsifiable question instead of discovering experiments from scope. Detect by prefix (same `$ARGUMENTS`-parsing pattern as `/nerd-intern`):
+
+- `commit:<ref>` — "did this commit change the metric?" Run a sweep-of-one: baseline (the commit's parent) vs. the commit.
+- `hypothesis:<statement>` — a single falsifiable claim with a `metric:<command>` clause to measure it.
+- An optional `metric:<command>` clause names the numeric metric. Example: `/nerd-this commit:455cc59 metric:"cargo run -- eval latency"`
+
+If a brief prefix is present, route to **Brief Mode** below and SKIP Phase 1 scope inference. If `$ARGUMENTS` has no brief prefix (or is empty), treat it as a free-text topic and proceed normally through Phase 1.
+
+### Brief Mode
+
+A brief is a *different intent* from scope-discovery — it is the falsifiable-experiment shape nerd is built for, narrowed to one cell. It is a native mode here (not a separate command) because a single-commit test is a central case of "run any falsifiable experiment," not a different tool.
+
+1. **Resolve scope from the brief, not from session signals:**
+   - `commit:<ref>` → scope is that commit's changed files: `git diff <ref>^..<ref> --name-only`. The comparison is `<ref>^` (baseline) vs. `<ref>` (HEAD-of-interest). **Root-commit guard:** if `<ref>` has no parent (`git rev-parse <ref>^` fails), compare against the empty tree instead — `git diff $(git hash-object -t tree /dev/null)..<ref> --name-only` — rather than letting `<ref>^` error out.
+   - `hypothesis:<statement>` → scope is whatever files the hypothesis names or the current working changes; the statement seeds the first comparison.
+2. **Require a trusted numeric metric** (consistent with the measurability bound). Take it from the `metric:` clause, or infer one. Run it through the **same sensitivity check lab-tech applies** (does the metric move under a known perturbation?). If there is no numeric metric, or it can't be verified sensitive, emit the same SETUP-NEEDED guidance lab-tech uses and STOP — do not fake a verdict.
+3. **Run the sweep-of-one** via the existing executor/report path (do NOT build a parallel runner): one comparison cell, baseline vs. the commit/change, producing a numeric KEEP / CHANGE / REFUTE verdict — the same output `/ce-debug` would give for "did this commit cause the regression?".
+4. **Record a `research_type: "hypothesis"` theory node** in the DAG (report-compiler) so the brief's verdict is remembered like any other experiment.
+
+Then skip to Phase 4+ (Experiment Design → execution) with this single experiment; Phases 1–3's discovery/theming are not needed for a brief.
 
 ## Pre-flight
 
@@ -93,6 +116,29 @@ git branch --show-current
 ```
 
 Store: language, test command, current branch from the local config.
+
+**Guard: experiments must not run off main.**
+
+```bash
+CURRENT_BRANCH=$(git branch --show-current)
+# Resolve the default branch without assuming 'master' when origin is absent.
+DEFAULT_BRANCH=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@')
+if [ -z "$DEFAULT_BRANCH" ]; then
+  for cand in main master; do
+    if git rev-parse --verify "origin/$cand" >/dev/null 2>&1 || git rev-parse --verify "$cand" >/dev/null 2>&1; then
+      DEFAULT_BRANCH="$cand"; break
+    fi
+  done
+fi
+```
+
+If `$CURRENT_BRANCH` is empty/detached (a hard stop — every downstream worktree/merge/reconcile step misbehaves on an empty branch name), OR equals `$DEFAULT_BRANCH`, OR `$DEFAULT_BRANCH` couldn't be resolved:
+- In interactive mode: Use AskUserQuestion: "You're on {current_branch_or_'a detached HEAD'}. Experiments create worktrees and merge results back into your current branch — running off main (or a detached HEAD) risks polluting it with experiment branches and partial results. Create a branch first? (suggest: `git checkout -b nerd/research-{date}`)"
+- In scheduled mode: Auto-create `nerd/scheduled-{date}` and switch to it.
+
+**After any switch, re-capture `CURRENT_BRANCH`** (`CURRENT_BRANCH=$(git branch --show-current)`) and store the *post-switch* value — Phase 8.3 (merge-back) and Phase 10 (reconcile) use it, so a stale pre-switch value would merge into the branch the guard just moved you off.
+
+Store: the re-captured `$CURRENT_BRANCH`, `$DEFAULT_BRANCH`.
 
 ## Phase 1: Scope Resolution
 
@@ -414,12 +460,7 @@ If no eval module exists, create a scaffold appropriate to the project language.
 
 ### 8.2: Launch Experiment Agents
 
-For each `planned` experiment:
-
-```bash
-git worktree add worktrees/nerd-{entry.id} --detach HEAD
-cd worktrees/nerd-{entry.id} && git checkout -b nerd/{entry.id}
-```
+For each `planned` experiment, create the worktree by following **`skills/worktree-lifecycle` §Create** (canonical procedure — run its bash verbatim; handles the empty/detached-HEAD guard and branch-collision suffix). Use the `$WT_BRANCH` it sets in this experiment's later merge/cleanup.
 
 ```
 Agent(subagent_type="nerd:experiment-executor", prompt="
@@ -437,17 +478,7 @@ Cap parallel agents at `max_parallel_experiments` from config.
 
 ### 8.3: Merge Completed Experiments
 
-As each agent completes, merge immediately:
-
-```bash
-git merge nerd/{entry.id} --no-edit
-{test_command}  # verify tests pass
-```
-
-If tests fail: `git reset --hard HEAD~1`, mark `failed`, keep worktree.
-If merge succeeds: `git worktree remove worktrees/nerd-{entry.id}`.
-
-Merge conflicts in eval module files are additive — combine both sides.
+As each agent completes, merge it back by following **`skills/worktree-lifecycle` §Merge** (canonical procedure — run its bash verbatim). It merges into the re-captured `$CURRENT_BRANCH`, serializes per-experiment, skips on a dirty tree, uses `git merge --abort` for conflicts vs `reset --hard HEAD~1` only for clean-merge-then-tests-fail, and on success cleans up via the fail-safe cleanup gate. Merge conflicts in eval-module files are additive — combine both sides.
 
 ## Phase 9: Monitor
 
@@ -459,10 +490,7 @@ Use `/loop 5m` to check on background agents. Merge experiments as they complete
 Agent(subagent_type="nerd:report-compiler", prompt="Compile findings from docs/research/results/ into docs/research/findings.md and per-experiment reports. Write theories, verdicts, and edges to project DAG: {dag_path}.", run_in_background=false)
 ```
 
-Present summary. Clean up remaining worktrees:
-```bash
-git worktree prune
-```
+Present summary. Then reconcile and clean up worktrees by following **`skills/worktree-lifecycle` §Reconcile** (canonical procedure — run its bash verbatim). It removes only worktrees whose branch is already merged into `$CURRENT_BRANCH` (checking `git branch --merged`, not just `git worktree prune`), deletes the merged branches, surfaces any worktree it couldn't remove instead of swallowing the error, and is gated by the same fail-safe cleanup flag.
 
 ## Phase 11: Scout for Loop Candidates
 

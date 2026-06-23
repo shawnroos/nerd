@@ -72,6 +72,15 @@ If WAL mode is detected:
 - Check file permissions (readable by the current user)
 - If the plan references a dataset that needs to be generated, flag as "needs setup"
 
+**Data-prerequisite gate (before selecting a data-dependent experiment for a batch):**
+
+An experiment that needs live data — entity-bearing queries, search-feedback rows, session history — must have that data *before* it consumes an executor slot. Otherwise the executor runs, finds zero usable rows, and returns `FAILED (data_insufficiency)` with all theories inconclusive (the empty-`arras.db` failure that blocked three consecutive batches). Check the prerequisite explicitly:
+
+- Determine the minimum data the experiment requires from its plan (e.g., "≥15 entity-bearing queries", "non-empty session history").
+- Verify the production data source actually meets it (row counts, non-empty tables — after the WAL checkpoint above).
+- If it does NOT: `[BLOCKER] E-{id} requires {data requirement} but the data source has {actual}. Do not launch an executor — it will return FAILED (data_insufficiency).` Recommend the fix: a seeded eval database committed to the repo and loaded by harnesses as a fallback (`docs/research/fixtures/` or a checked-in minimal `arras.db`-style seed), so data-dependent experiments have realistic data without a live workspace.
+- This gate runs at readiness time so the orchestrator can drop the experiment from the batch rather than burning a slot on it.
+
 **API access:**
 - If the plan requires API calls (e.g., LLM evaluation), verify credentials are available
 - Check for `.env` files, environment variables, or config files with API keys
@@ -123,9 +132,31 @@ Many experiments need an eval harness or CLI command to measure results. Verify 
 3. If it requires test data (e.g., `--dataset queries.json`), check if that file exists
 4. If it requires a prior export step, check if the export has been run
 
+**Set `has_harness` per experiment.** A finding has a harness when the eval module *already implements this experiment's metric* (the metric command runs and exercises real experiment code), not merely when an eval module exists. Set `has_harness: true` only if the experiment's specific metric command runs against existing code; set `has_harness: false` when the executor would have to build the harness from scratch. This field gates autonomous (scheduled-mode) execution — building a harness is the token-heavy phase that exhausts an executor's tool budget, so scheduled mode avoids launching full executors on `has_harness: false` experiments.
+
 Flag missing infrastructure:
 - "BLOCKER: Plan E003 requires `cargo run -- eval coherence --dataset test-queries.json` but `test-queries.json` does not exist. Need to run export first."
-- "SETUP NEEDED: No eval module exists. The experiment-executor will need to create one."
+- "SETUP NEEDED: No eval module exists. The experiment-executor will need to create one." (→ `has_harness: false`)
+
+**Sensitivity smoke-test — does the metric actually respond to change?**
+
+A metric command that runs and emits a number is not enough: if the metric does not *move* when the thing it measures changes, every sweep value comes back identical and every theory is inconclusive-by-association (a broken instrument silently invalidates the whole experiment). Before classifying a finding "experimentable," verify the metric is sensitive to a known perturbation. This is distinct from Check 8b's determinism validation — they are opposite assertions:
+
+| Check | Question | Pass condition |
+|-------|----------|----------------|
+| 8b Determinism | Same code → same number? | Low coefficient of variation across repeated runs |
+| 3 Sensitivity | Different code → different number? | The number moves under a known perturbation |
+
+**Classify the metric shape first, because auto-perturbation only works for some shapes:**
+
+- **Mechanical metrics** (bundle size, compile time, latency, I/O count, memory): a perturbation is cheap and synthesizable — append bytes to an artifact, inject a `sleep`, add a delay, allocate more. Apply the perturbation, re-run the metric, confirm the number moves in the expected direction.
+  - **The perturbation MUST be fully reverted before you finish — this is mandatory, not optional.** You are running in the live working tree on the source branch; an un-reverted perturbation bleeds into every experiment worktree created from that branch (Phase 6c) and corrupts the baseline measurement. Apply the perturbation against a throwaway copy, OR snapshot first (`git stash` / record the file) and restore immediately after re-running the metric, then assert the tree is clean (`git status --porcelain` empty and any touched non-tracked artifact deleted). If you cannot guarantee a clean revert, do NOT perturb in place — treat it as a semantic metric (SETUP NEEDED) instead.
+  - Moves → `[OK] Metric is sensitive (responds to known perturbation).` (and the perturbation has been reverted)
+  - Does not move → `[BLOCKER] Instrument insensitive: metric does not respond to a known perturbation. Sweeping it will produce identical results regardless of parameter value. Fix the instrument before experimenting.` (revert the perturbation regardless of outcome)
+- **Semantic metrics** (search relevance / nDCG, quality scores, business KPIs): a *meaningful* perturbation is project-specific and usually cannot be synthesized from the metric command alone — you'd need to understand and corrupt the input. Do NOT fake it. Emit an actionable setup request rather than a false "ready":
+  - `[SETUP NEEDED] Cannot auto-verify sensitivity for semantic metric {metric}. Provide a known-good / known-bad fixture pair so the harness can confirm the metric distinguishes them before the sweep runs.`
+
+A finding whose metric is insensitive (BLOCKER) or whose sensitivity cannot be verified (SETUP NEEDED) is NOT classified "experimentable" — it is instrument-blocked until the instrument is trusted. You MAY reuse one harness-setup pass to emit both the 8b determinism verdict and this sensitivity verdict, but keep them as two separate verdicts — never merge them into one "metric health" check.
 
 ### Check 4: Tool Availability
 
@@ -328,6 +359,12 @@ Report format:
 checked_at: "{timestamp}"
 experiments_checked: [{ids}]
 status: ready|blocked|needs_setup
+# Per-experiment harness presence — read by the orchestrator to gate autonomous
+# (scheduled-mode) execution. has_harness:false means the executor would have to
+# BUILD the harness, which is the token-heavy phase that exhausts tool budget.
+has_harness:
+  E001: true
+  E002: false
 ---
 
 # Lab Readiness Report
@@ -337,11 +374,12 @@ status: ready|blocked|needs_setup
 - Ready: {N}
 - Blocked: {N}
 - Needs setup (auto-scaffolded): {N}
+- Pre-existing harness (no build phase needed): {N}
 
 ## Per-Experiment Status
 
 ### E001: {title} — READY
-All checks passed. Data accessible, config wired, eval command works.
+All checks passed. Data accessible, config wired, eval command works. `has_harness: true` (eval module already implements this experiment's metric).
 
 ### E002: {title} — SCAFFOLDED
 - [FIXED] Created data export: scripts/nerd-export-search-feedback.sh
