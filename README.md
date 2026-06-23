@@ -2,11 +2,11 @@
 
 **Your codebase has hundreds of hardcoded thresholds, magic numbers, and untested heuristics. You don't know which ones matter. The nerd does.**
 
-That's the hook — but it's one mode, not the whole job. The nerd runs **any falsifiable experiment that produces a measurable number** against your codebase: parameter sweeps, single-commit hypothesis tests ("did this commit cause the regression?"), model/prompt/algorithm comparisons. If you can phrase it as a question a numeric metric can answer, the nerd can run it.
+That's the hook — but it's one mode, not the whole job. The nerd runs **any falsifiable experiment with a trusted instrument** against your codebase: parameter sweeps, single-commit hypothesis tests ("did this commit cause the regression?"), model/prompt/algorithm comparisons. If you can phrase it as a question a numeric metric can answer — or one an LLM judge can score against a pre-registered rubric — the nerd can run it.
 
 A Claude Code plugin that obsessively researches your codebase overnight — designing rigorous experiments with competing theories, running them in isolated worktrees, and delivering findings that tell you what to keep, what to change, and what to rearchitect. It remembers what it learned, so it never wastes time re-testing what it already proved.
 
-**One requirement:** the experiment must have a *trusted numeric metric*. Qualitative or human-judged questions ("does this read better?") are outside what the nerd runs — it will tell you so rather than fake a verdict.
+**One requirement: a trusted instrument.** For numeric experiments that's a metric the harness verifies is actually *sensitive* to change. The nerd also runs **rubric-judged experiments** — an LLM judge scoring qualitative outputs (rendered images, prompts, model responses) against a pre-registered rubric — but only after the judge clears an instrument-trust gate as strict as the numeric one: it must separate known-good from known-bad anchors and pass a blind triangle discriminability test (cached per rubric+judge). Either way, the nerd reports a *broken instrument* rather than faking a verdict. (Human-judged sweeps and continuous `nerd-loop` LLM-judging stay out of scope — too asynchronous and too noisy, respectively.)
 
 ## Why
 
@@ -77,6 +77,8 @@ Research just what you're working on right now. Infers scope from your current b
   ├─ Groups findings into research themes
   └─ Runs the full experiment pipeline on selected themes
 ```
+
+Brief mode runs one specific question instead of discovering from scope: `commit:<ref>` (did this commit move the metric?), `hypothesis:<statement> metric:<cmd>`, or `rubric:<id>` to judge outputs against a pre-registered rubric — e.g. `/nerd-this commit:455cc59 rubric:portrait-v3 judge:claude-opus-4-7`. Rubrics live in `.nerd/rubrics/<id>.yaml` and are hash-locked on first use (edit = fork to a new id).
 
 ## Competing Theories
 
