@@ -45,7 +45,7 @@ supported_theory: "A|B|C"
 One paragraph: what was tested, which theory was supported, what should change.
 
 <!-- Rubric-judged experiments only: a readable provenance line for humans. This is NOT
-     the surface lab-tech reads on resume (that is the orchestrator's Phase 4.5 filtered-
+     the surface lab-tech reads on resume (that is the orchestrator's Phase 5 filtered-
      markdown block, fed by the DAG nodes written in Step 8.2b). Omit for numeric experiments. -->
 **Rubric:** portrait-v3 (hash a1b2c3d4…); judge: claude-opus-4-7; triangle: PASS (13/15, verified 2026-06-23)
 
@@ -244,18 +244,18 @@ For **each theory result** (SUPPORTED / REFUTED / INCONCLUSIVE), create a verdic
 
 Skip this step entirely for batches with no rubric-judged experiments. For each rubric-judged experiment, using the `rubric_instrument` provenance and any `triangle_verdict:` block from the lab-readiness report:
 
-1. **Rubric node** — if the DAG has no `rubric` node whose `content_hash` matches this experiment's `rubric_hash`, append one (note the highest existing `R` id; the next is `R{n+1}`). The criteria are NOT embedded — the YAML library file is the source of truth:
+1. **Rubric node** — if the DAG has no `rubric` node whose `content_hash` matches this experiment's `rubric_hash`, append one (note the highest existing `R` id; the next is `R{n+1}`). The criteria are NOT embedded — the YAML library file is the source of truth. All provenance fields come from the experiment's `rubric_instrument` block in the lab-readiness report — `rubric_library_id` ← `rubric_id`, `version` ← `rubric_version`, `content_hash` ← `rubric_hash`, `source_path` ← `source_path` — except `created_at`, which you stamp at write time:
    ```json
    {
      "id": "R{next_id}", "type": "rubric",
      "rubric_library_id": "portrait-v3", "version": 3,
      "content_hash": "{full sha256}", "source_path": ".nerd/rubrics/portrait-v3.yaml",
-     "created_at": "{ISO 8601}", "status": "active"
+     "created_at": "{ISO 8601 — stamp now}", "status": "active"
    }
    ```
-   If a matching `rubric` node already exists (same `content_hash`), reuse it — do not duplicate.
+   If a matching `rubric` node already exists (same `content_hash`), reuse it — do not duplicate. (If `rubric_version` or `source_path` is somehow absent from the `rubric_instrument` block, read them from the rubric YAML at `source_path` rather than guessing.)
 
-2. **Triangle-verdict node** — only when the lab-readiness report contains a fresh `triangle_verdict: { ... }` block for this experiment (a cache hit emits no block; the verdict already lives in the DAG). Append a `triangle_verdict` node (next `TRI` id), carrying `result` (PASS|FAIL) and `status: "active"`:
+2. **Triangle-verdict node** — only when the lab-readiness report contains a fresh `triangle_verdict: { ... }` block for this experiment (a cache hit emits no block; the verdict already lives in the DAG). Append a `triangle_verdict` node (next `TRI` id), copying the block's fields and adding `status: "active"`:
    ```json
    {
      "id": "TRI{next_id}", "type": "triangle_verdict",
@@ -266,7 +266,9 @@ Skip this step entirely for batches with no rubric-judged experiments. For each 
    ```
    **Runtime assertion before writing:** confirm `correct_count <= total_trials` (this schema expresses no cross-field constraint, so report-compiler enforces it). If violated, skip the node and note the malformed verdict in the DAG summary rather than writing a bad node.
 
-The verdict node's `triangle_verdict_id` (Step 8.3) points at the `TRI` node that admitted the judge — either the freshly written one or the pre-existing cached one referenced in the `rubric_instrument` block.
+**Setting the verdict node's `triangle_verdict_id` (Step 8.3).** It points at the `TRI` node that admitted the judge — but where you get the id depends on cache state:
+- **Fresh triangle** (you just wrote a new `TRI{n}` node above): use that id. lab-tech could not have known it — the `rubric_instrument` block omits `triangle_verdict_id` on a fresh run — so you **back-fill** it here from the node you just minted.
+- **Cache hit** (no `triangle_verdict:` block; lab-tech read a prior verdict from the injected context): use the `triangle_verdict_id` the `rubric_instrument` block carries (the pre-existing `TRI` node's id).
 
 ### 8.4: Create Edges
 

@@ -31,7 +31,7 @@ You run between experiment design (Phase 3) and experiment execution (Phase 5). 
 
 You are invoked in one of two modes:
 
-**Batch mode** (from `/nerd` Phase 4.5):
+**Batch mode** (from `/nerd` Phase 5):
 - One or more experiment plan paths (e.g., `docs/research/plans/E001-plan.md`)
 - The project's language, test command, and build command from `.claude/nerd.local.md`
 - The project root directory
@@ -176,7 +176,7 @@ Run three sub-checks in fixed order — cheapest first, so a broken rubric short
    - Cache hit, `result: FAIL` (still fresh): `[BLOCKER] judge_fails_triangle_discriminability (cached <date>): <judge_id> identified the odd stimulus in only <correct>/<total> trials — at or near chance. Refine the rubric or use a more capable judge.`
    - Cache miss or stale: run the triangle. Generate N≥10 trials, half `{good, good, bad}` and half `{good, bad, bad}`; present the three stimuli labeled A/B/C in randomized order; ask the judge which of A/B/C is most different on `<headline_criterion>`; record the single-letter answer. Score ≥80% correct (binomial p<0.05) → PASS, else FAIL. Emit the verdict as a structured block (see Output → Write path) for report-compiler to persist; emit `[OK] triangle PASS (<correct>/<total>, verified <date>)` on PASS or the `[BLOCKER] judge_fails_triangle_discriminability` above on FAIL. (The exact triangle prompt wording is written against the real anchor fixtures at run time; this gate specifies only the structural contract — blind three-item, headline-criterion question, single-letter answer.)
 
-**Read path (honoring the DAG filtered-markdown rule).** lab-tech never parses raw DAG JSON. The orchestrator (`/nerd` Phase 4.5) queries the DAG for prior `rubric` and `triangle_verdict` nodes relevant to the batch and injects them into this agent's context as two line types:
+**Read path (honoring the DAG filtered-markdown rule).** lab-tech never parses raw DAG JSON. The orchestrator (`/nerd` Phase 5) queries the DAG for prior `rubric` and `triangle_verdict` nodes relevant to the batch and injects them into this agent's context as two line types:
 
 ```
 Rubric on file: portrait-v3 hash=<full-sha256> source=.nerd/rubrics/portrait-v3.yaml
@@ -403,9 +403,11 @@ rubric_instrument:
   E004:
     instrument_kind: judge_rubric
     rubric_id: portrait-v3
+    rubric_version: 3                          # from the rubric YAML — report-compiler needs it for the rubric_node
     rubric_hash: "<full-sha256>"
+    source_path: .nerd/rubrics/portrait-v3.yaml  # report-compiler needs it for the rubric_node and the executor for the locked-hash check
     judge_id: claude-opus-4-7
-    triangle_verdict_id: TRI001   # present when a cached or freshly-run triangle verdict applies
+    triangle_verdict_id: TRI001                # CACHE HIT ONLY — the id of a pre-existing triangle_verdict node read from the orchestrator's injected block. OMIT on a fresh triangle run: the TRI id is minted by report-compiler at batch-end (Step 8.2b), so lab-tech cannot know it yet — report-compiler back-fills it onto the verdict node from the node it writes.
 ---
 
 # Lab Readiness Report

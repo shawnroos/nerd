@@ -141,7 +141,7 @@ The invocation prompt carries the rubric (library id or inline path), the judge 
 }
 ```
 
-The top-level `criterion_scores` is the per-criterion roll-up across cells (means for numeric criteria; an aggregate like "any-cell-true" for boolean flags). `experiment_verdict` rolls the per-cell verdicts up per the rubric's pass condition. Provenance fields (`rubric_id`, `rubric_hash`, `judge_id`, `triangle_verdict_id`) are echoed here for convenience; report-compiler also has them from the lab-readiness `rubric_instrument` block.
+The top-level `criterion_scores` is the per-criterion roll-up across cells (means for numeric criteria; an aggregate like "any-cell-true" for boolean flags). `experiment_verdict` rolls the per-cell verdicts up per the rubric's pass condition. Provenance fields (`rubric_id`, `rubric_hash`, `judge_id`) are echoed here for convenience; report-compiler also has them from the lab-readiness `rubric_instrument` block. **`triangle_verdict_id` is only known on a cache hit** (it arrives in your invocation when a prior verdict was reused); on a fresh triangle run the TRI id does not exist yet — omit the field, and report-compiler back-fills it from the `triangle_verdict` node it writes at batch-end.
 7. **Commit results.** `feat(results/{experiment_id}): record judge-rubric sweep` — there is no eval-module change to commit, only the results JSON. Stage only that file.
 
 **Judge unreachability (every-cell-or-none).** If the declared judge model is unreachable at run time, STOP gracefully with `judge <id> unreachable: <error>; results not recorded` rather than writing a partial matrix. Partial-result handling for judge-rubric experiments is out of v1 — record every cell or none.
