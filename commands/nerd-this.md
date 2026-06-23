@@ -28,7 +28,7 @@ If a brief prefix is present, route to **Brief Mode** below and SKIP Phase 1 sco
 A brief is a *different intent* from scope-discovery — it is the falsifiable-experiment shape nerd is built for, narrowed to one cell. It is a native mode here (not a separate command) because a single-commit test is a central case of "run any falsifiable experiment," not a different tool.
 
 1. **Resolve scope from the brief, not from session signals:**
-   - `commit:<ref>` → scope is that commit's changed files: `git diff <ref>^..<ref> --name-only`. The comparison is `<ref>^` (baseline) vs. `<ref>` (HEAD-of-interest).
+   - `commit:<ref>` → scope is that commit's changed files: `git diff <ref>^..<ref> --name-only`. The comparison is `<ref>^` (baseline) vs. `<ref>` (HEAD-of-interest). **Root-commit guard:** if `<ref>` has no parent (`git rev-parse <ref>^` fails), compare against the empty tree instead — `git diff $(git hash-object -t tree /dev/null)..<ref> --name-only` — rather than letting `<ref>^` error out.
    - `hypothesis:<statement>` → scope is whatever files the hypothesis names or the current working changes; the statement seeds the first comparison.
 2. **Require a trusted numeric metric** (consistent with the measurability bound). Take it from the `metric:` clause, or infer one. Run it through the **same sensitivity check lab-tech applies** (does the metric move under a known perturbation?). If there is no numeric metric, or it can't be verified sensitive, emit the same SETUP-NEEDED guidance lab-tech uses and STOP — do not fake a verdict.
 3. **Run the sweep-of-one** via the existing executor/report path (do NOT build a parallel runner): one comparison cell, baseline vs. the commit/change, producing a numeric KEEP / CHANGE / REFUTE verdict — the same output `/ce-debug` would give for "did this commit cause the regression?".
@@ -121,15 +121,24 @@ Store: language, test command, current branch from the local config.
 
 ```bash
 CURRENT_BRANCH=$(git branch --show-current)
+# Resolve the default branch without assuming 'master' when origin is absent.
 DEFAULT_BRANCH=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@')
-[ -z "$DEFAULT_BRANCH" ] && DEFAULT_BRANCH=$(git rev-parse --verify origin/main >/dev/null 2>&1 && echo "main" || echo "master")
+if [ -z "$DEFAULT_BRANCH" ]; then
+  for cand in main master; do
+    if git rev-parse --verify "origin/$cand" >/dev/null 2>&1 || git rev-parse --verify "$cand" >/dev/null 2>&1; then
+      DEFAULT_BRANCH="$cand"; break
+    fi
+  done
+fi
 ```
 
-If `$CURRENT_BRANCH` equals `$DEFAULT_BRANCH` (or is empty/detached):
-- In interactive mode: Use AskUserQuestion: "You're on {default_branch}. Experiments create worktrees and merge results back into your current branch — running off main risks polluting it with experiment branches and partial results. Create a branch first? (suggest: `git checkout -b nerd/research-{date}`)"
+If `$CURRENT_BRANCH` is empty/detached (a hard stop — every downstream worktree/merge/reconcile step misbehaves on an empty branch name), OR equals `$DEFAULT_BRANCH`, OR `$DEFAULT_BRANCH` couldn't be resolved:
+- In interactive mode: Use AskUserQuestion: "You're on {current_branch_or_'a detached HEAD'}. Experiments create worktrees and merge results back into your current branch — running off main (or a detached HEAD) risks polluting it with experiment branches and partial results. Create a branch first? (suggest: `git checkout -b nerd/research-{date}`)"
 - In scheduled mode: Auto-create `nerd/scheduled-{date}` and switch to it.
 
-Store: `$CURRENT_BRANCH`, `$DEFAULT_BRANCH`.
+**After any switch, re-capture `CURRENT_BRANCH`** (`CURRENT_BRANCH=$(git branch --show-current)`) and store the *post-switch* value — Phase 8.3 (merge-back) and Phase 10 (reconcile) use it, so a stale pre-switch value would merge into the branch the guard just moved you off.
+
+Store: the re-captured `$CURRENT_BRANCH`, `$DEFAULT_BRANCH`.
 
 ## Phase 1: Scope Resolution
 
@@ -474,27 +483,40 @@ Cap parallel agents at `max_parallel_experiments` from config.
 
 ### 8.3: Merge Completed Experiments
 
-As each agent completes, merge back into the **source branch** (the branch you were on when `/nerd-this` started, NOT main):
+As each agent completes, merge back into the **source branch** (the re-captured `$CURRENT_BRANCH`, NOT main). Serialize the merge step across experiments — the recovery below assumes the merge it undoes is the latest commit.
 
 ```bash
-# Ensure we're on the source branch
+if [ -z "$CURRENT_BRANCH" ]; then echo "ABORT: empty CURRENT_BRANCH" >&2; exit 1; fi
 git checkout "$CURRENT_BRANCH"
-git merge nerd/{entry.id} --no-edit
-{test_command}  # verify tests pass
-```
-
-If tests fail: `git reset --hard HEAD~1`, mark `failed`, **keep the worktree** (it holds debuggable state).
-
-If merge succeeds, clean up the worktree — gated on the `auto_cleanup_worktrees` config flag:
-
-```bash
-AUTO_CLEANUP=$(grep -E '^auto_cleanup_worktrees:' .claude/nerd.local.md | sed 's/.*: *//')
-if [ "$AUTO_CLEANUP" != "false" ]; then        # default true when unset
-  git worktree remove worktrees/nerd-{entry.id}
+if [ -n "$(git status --porcelain)" ]; then
+  echo "WARN: working tree dirty on $CURRENT_BRANCH — skipping merge to avoid clobbering; mark deferred." >&2
+else
+  if git merge nerd/{entry.id} --no-edit; then
+    {test_command}  # merge clean → verify tests
+    if [ $? -ne 0 ]; then
+      git reset --hard HEAD~1   # tests failed AFTER a clean merge → undo the merge commit; KEEP worktree
+    fi
+  else
+    git merge --abort           # merge CONFLICTED → abort (no merge commit to reset); KEEP worktree
+  fi
 fi
 ```
 
-When `auto_cleanup_worktrees: false`, the worktree is kept intentionally. Merged-but-kept worktrees are still reconciled by the Phase 10 audit so they are never mistaken for active work.
+A conflicted merge leaves no merge commit, so `reset --hard HEAD~1` would drop a real prior commit — use `git merge --abort` for conflicts and reserve `reset --hard HEAD~1` for "merged clean but tests failed."
+
+If the merge succeeded and tests passed, clean up the worktree — gated on the `auto_cleanup_worktrees` flag (fail-safe: only an explicit affirmative removes):
+
+```bash
+AUTO_CLEANUP=$(grep -E '^auto_cleanup_worktrees:' .claude/nerd.local.md 2>/dev/null \
+  | head -1 | sed 's/^[^:]*://; s/#.*//; s/["'\'' ]//g' | tr '[:upper:]' '[:lower:]')
+if [ -z "$AUTO_CLEANUP" ] || [ "$AUTO_CLEANUP" = "true" ] || [ "$AUTO_CLEANUP" = "yes" ] || [ "$AUTO_CLEANUP" = "1" ]; then
+  if git worktree remove worktrees/nerd-{entry.id}; then
+    git branch -d "nerd/{entry.id}" 2>/dev/null
+  fi
+fi
+```
+
+Default-ON applies only when the key is *missing*; an explicit `false`/`no`/`0`/commented/quoted value keeps the worktree. When kept, it is reconciled by the Phase 10 audit so it is never mistaken for active work.
 
 Merge conflicts in eval module files are additive — combine both sides.
 
@@ -513,16 +535,21 @@ Present summary. Reconcile and clean up worktrees.
 `git worktree prune` only removes worktrees whose directory is already gone — it does NOT remove a worktree still on disk for an already-merged branch. That gap is how stale worktrees accumulate and get re-run. Cross-check against merged branches first:
 
 ```bash
+if [ -z "$CURRENT_BRANCH" ]; then echo "ABORT: empty CURRENT_BRANCH — cannot reconcile worktrees" >&2; exit 1; fi
 git checkout "$CURRENT_BRANCH"
-AUTO_CLEANUP=$(grep -E '^auto_cleanup_worktrees:' .claude/nerd.local.md | sed 's/.*: *//')
-if [ "$AUTO_CLEANUP" != "false" ]; then
+AUTO_CLEANUP=$(grep -E '^auto_cleanup_worktrees:' .claude/nerd.local.md 2>/dev/null \
+  | head -1 | sed 's/^[^:]*://; s/#.*//; s/["'\'' ]//g' | tr '[:upper:]' '[:lower:]')
+if [ -z "$AUTO_CLEANUP" ] || [ "$AUTO_CLEANUP" = "true" ] || [ "$AUTO_CLEANUP" = "yes" ] || [ "$AUTO_CLEANUP" = "1" ]; then
+  MERGED=$(git branch --merged "$CURRENT_BRANCH" | sed 's/^[*+ ] *//')
   for wt in worktrees/nerd-*; do
     [ -d "$wt" ] || continue
     branch="nerd/$(basename "$wt" | sed 's/^nerd-//')"
-    # Strip git branch's prefix column (* current, + worktree-checked-out, 2 spaces other)
-    # before matching — an experiment branch is checked out in its worktree, so it shows '+ '.
-    if git branch --merged "$CURRENT_BRANCH" | sed 's/^[*+ ] *//' | grep -qx "$branch"; then
-      git worktree remove "$wt"          # merged → safe to remove
+    if echo "$MERGED" | grep -qx "$branch"; then
+      if git worktree remove "$wt"; then     # merged → safe to remove
+        git branch -d "$branch" 2>/dev/null
+      else
+        echo "WARN: '$wt' is merged but could not be removed (untracked/uncommitted files). Resolve manually: git worktree remove --force '$wt'" >&2
+      fi
     fi
   done
 fi

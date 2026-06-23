@@ -150,8 +150,9 @@ A metric command that runs and emits a number is not enough: if the metric does 
 **Classify the metric shape first, because auto-perturbation only works for some shapes:**
 
 - **Mechanical metrics** (bundle size, compile time, latency, I/O count, memory): a perturbation is cheap and synthesizable — append bytes to an artifact, inject a `sleep`, add a delay, allocate more. Apply the perturbation, re-run the metric, confirm the number moves in the expected direction.
-  - Moves → `[OK] Metric is sensitive (responds to known perturbation).`
-  - Does not move → `[BLOCKER] Instrument insensitive: metric does not respond to a known perturbation. Sweeping it will produce identical results regardless of parameter value. Fix the instrument before experimenting.`
+  - **The perturbation MUST be fully reverted before you finish — this is mandatory, not optional.** You are running in the live working tree on the source branch; an un-reverted perturbation bleeds into every experiment worktree created from that branch (Phase 6c) and corrupts the baseline measurement. Apply the perturbation against a throwaway copy, OR snapshot first (`git stash` / record the file) and restore immediately after re-running the metric, then assert the tree is clean (`git status --porcelain` empty and any touched non-tracked artifact deleted). If you cannot guarantee a clean revert, do NOT perturb in place — treat it as a semantic metric (SETUP NEEDED) instead.
+  - Moves → `[OK] Metric is sensitive (responds to known perturbation).` (and the perturbation has been reverted)
+  - Does not move → `[BLOCKER] Instrument insensitive: metric does not respond to a known perturbation. Sweeping it will produce identical results regardless of parameter value. Fix the instrument before experimenting.` (revert the perturbation regardless of outcome)
 - **Semantic metrics** (search relevance / nDCG, quality scores, business KPIs): a *meaningful* perturbation is project-specific and usually cannot be synthesized from the metric command alone — you'd need to understand and corrupt the input. Do NOT fake it. Emit an actionable setup request rather than a false "ready":
   - `[SETUP NEEDED] Cannot auto-verify sensitivity for semantic metric {metric}. Provide a known-good / known-bad fixture pair so the harness can confirm the metric distinguishes them before the sweep runs.`
 
