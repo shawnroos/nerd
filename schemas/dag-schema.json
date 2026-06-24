@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "Nerd Research DAG",
-  "description": "Schema for the nerd research knowledge graph. Per-project files store theories, verdicts, build infrastructure profiles (build_profile, cache_verdict), rubric instruments (rubric, triangle_verdict), and edges. The global index stores synthesis nodes and tool_availability nodes. Infra nodes use I-prefixed IDs; rubric nodes use R-prefixed IDs; triangle-verdict (judge-calibration) nodes use TRI-prefixed IDs.",
+  "description": "Schema for the nerd research knowledge graph. Per-project files store theories, verdicts, build infrastructure profiles (build_profile, cache_verdict), rubric instruments (rubric, triangle_verdict), and edges. The global index stores synthesis nodes and tool_availability nodes. Infra nodes use I-prefixed IDs; rubric nodes use R-prefixed IDs; triangle-verdict (judge-calibration) nodes use TRI-prefixed IDs. Most node types use status active|stale; rubric_node uses active|deprecated (deprecated = superseded by a forked rubric_id), so a generic consumer enumerating aged-out nodes by status:stale should also account for deprecated rubric nodes.",
 
   "definitions": {
     "theory_node": {

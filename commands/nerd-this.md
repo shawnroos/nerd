@@ -464,12 +464,22 @@ In scheduled mode: execute all.
 
 Before spinning up expensive experiment agents, validate that the lab is ready.
 
+**Rubric-instrument pre-flight context (judge_rubric experiments only — e.g. a `rubric:` brief).** If any experiment in the batch declares `instrument: judge_rubric`, the orchestrator first queries the project DAG for `rubric` and `triangle_verdict` nodes matching the batch's rubrics and judges, and renders them into a filtered-markdown block injected into lab-tech's prompt — orchestrator-mediated reads per `docs/solutions/architecture-decisions/research-dag-cross-session-memory.md` (lab-tech never parses raw DAG JSON). Same mechanism and block format as `/nerd` Phase 5; full sha256 hashes for byte-exact matching:
+
+```
+Rubric on file: portrait-v3 hash=<full-sha256> source=.nerd/rubrics/portrait-v3.yaml
+Triangle verdicts on file: (rubric_hash=<full-sha256>, judge=claude-opus-4-7) PASS 13/15 verified 2026-05-12
+```
+
+Omit the block for batches with no rubric experiments.
+
 ```
 Agent(subagent_type="nerd:lab-tech", prompt="
 Validate readiness for experiments: {comma-separated plan paths}.
 Project root: {cwd}. Language: {lang}. Test command: {test_cmd}. Build command: {build_cmd}.
 Project DAG path: {dag_path}. Max parallel experiments: {max_parallel_experiments}.
 Run all checks: data access, config wiring, eval commands, tool availability, worktree readiness, cross-experiment conflicts, and build infrastructure (Check 7).
+For any experiment declaring instrument: judge_rubric, run the judge-instrument gate (Check 3) instead of the numeric sensitivity check. On-file rubric hashes and cached triangle verdicts (orchestrator-injected; do not read the DAG directly): {rubric_triangle_block}
 Check 7: Profile the build, detect sccache, select cache strategy, set up caching, write build_cache config to .claude/nerd.local.md. Read infra nodes from the DAG for prior cache verdicts.
 If any experiments have research_type: performance, also run Check 8 (Performance Profiling Readiness): 8a tool availability for profiling tools, 8b determinism validation of metric commands, 8c build mode check for debug symbols, 8d build cache awareness for profiling flags.
 Scaffold any missing infrastructure (export scripts, test fixtures). Do NOT create the eval module — Phase 8.1 handles that.
@@ -505,6 +515,8 @@ For each `planned` experiment:
 git worktree add worktrees/nerd-{entry.id} -b nerd/{entry.id} "$CURRENT_BRANCH"
 ```
 
+**Numeric experiments** (`instrument: numeric_metric` or absent):
+
 ```
 Agent(subagent_type="nerd:experiment-executor", prompt="
 Execute plan at docs/research/plans/{entry.id}-plan.md.
@@ -514,6 +526,19 @@ Write results to docs/research/results/{entry.id}-results.json.
 Before building, read .claude/nerd.local.md for build_cache_strategy and build_cache_env.
 If build_cache_env is set, prefix all build commands with it inline (e.g., for Rust: RUSTC_WRAPPER=sccache cargo build).
 If a build fails with cache, retry without it and add cache_fallback: true to results JSON.
+", run_in_background=true)
+```
+
+**Rubric-judged experiments** (`instrument: judge_rubric` — e.g. a `rubric:` brief): no harness to build, so skip the build phase and launch `phase=run` directly (same as `/nerd` Phase 6c). Carry the rubric, judge, and locked hash forward:
+
+```
+Agent(subagent_type="nerd:experiment-executor", prompt="
+phase=run
+Execute plan at docs/research/plans/{entry.id}-plan.md. instrument: judge_rubric.
+Worktree: {path}. Language: {lang}. Tests: {test_cmd}.
+Rubric: {entry.rubric}  (library id or inline path). Judge: {entry.judge_id}.
+Locked rubric hash: {entry.rubric_hash}  (from the lab-readiness rubric_instrument block; abort with rubric_hash_drift_detected if the file no longer matches).
+Do NOT build or expect a committed harness. Run the judge-rubric branch: judge each cell against the rubric, evaluate the pass condition, write results to docs/research/results/{entry.id}-results.json. Commit the results.
 ", run_in_background=true)
 ```
 

@@ -117,7 +117,7 @@ This is the path for rubric-judged experiments — an LLM judge scores each cell
 The invocation prompt carries the rubric (library id or inline path), the judge id, and the locked rubric hash. Steps:
 
 1. **Load the rubric, read-only.** Resolve the rubric from its `source_path` (`.nerd/rubrics/<id>.yaml` for a library id, or the inline path). **Never edit the rubric file** — it is hash-locked input. Read its `criteria[]` (each with `name`, `scale`, optional `anchor_examples`, `pass_condition`, optional `theory_tag`), the headline criterion, and any `default_judge` block (which may pin a temperature/seed).
-2. **Defensive hash re-check.** Re-compute the sha256 of the rubric YAML and compare against the locked hash passed in the invocation. If they differ, the file was edited between lab-tech's pre-flight and now — STOP with `rubric_hash_drift_detected: rubric <id> changed after pre-flight (locked <8-char>…, now <8-char>…); aborting run`. (This is belt-and-suspenders; lab-tech's Check 3 is the primary defense.)
+2. **Defensive hash re-check.** Re-compute the sha256 of the **raw rubric file bytes** (the same hashing lab-tech uses — raw bytes, not a YAML-parse-then-reserialize, so the values agree) and compare against the locked hash passed in the invocation. If they differ, the file was edited between lab-tech's pre-flight and now — STOP with `rubric_hash_drift_detected: rubric <id> changed after pre-flight (locked <8-char>…, now <8-char>…); aborting run`. (This is belt-and-suspenders; lab-tech's Check 3 is the primary defense.)
 3. **Load the cell grid.** From the plan's sweep dimensions × variants. A `/nerd-this` single-commit rubric brief is just a 1-cell grid — same path, N=1.
 4. **Judge each cell.** For each cell, generate the input artifact (or read the pre-generated fixture if the experiment supplies one), then invoke the declared judge with the rubric prompt. The judge sees the artifact and the rubric criteria and returns a structured verdict keyed by criterion name — e.g. `{ "subject_identity": 4.93, "composition": 5.0, "vibe": 5.0, "face_drift": false }`. Invoke the judge at **temperature 0** by default (honor the rubric's `default_judge` temperature/seed if pinned) — this pairs with lab-tech's fixture-pair check, which assumed the judge is deterministic enough for replicates to be meaningful.
 5. **Evaluate the pass condition per cell.** Apply the rubric's `pass_condition` to each cell's verdict (e.g. `mean(subject_identity) ≥ 4.0 AND no cell has face_drift == true`). Record a per-cell `cell_verdict: PASS|FAIL`.
@@ -130,7 +130,6 @@ The invocation prompt carries the rubric (library id or inline path), the judge 
   "rubric_id": "portrait-v3",
   "rubric_hash": "<full sha256>",
   "judge_id": "claude-opus-4-7",
-  "triangle_verdict_id": "TRI001",
   "headline_criterion": "subject_identity",
   "headline_scalar": 4.93,
   "experiment_verdict": "PASS",
@@ -141,7 +140,7 @@ The invocation prompt carries the rubric (library id or inline path), the judge 
 }
 ```
 
-The top-level `criterion_scores` is the per-criterion roll-up across cells (means for numeric criteria; an aggregate like "any-cell-true" for boolean flags). `experiment_verdict` rolls the per-cell verdicts up per the rubric's pass condition. Provenance fields (`rubric_id`, `rubric_hash`, `judge_id`) are echoed here for convenience; report-compiler also has them from the lab-readiness `rubric_instrument` block. **`triangle_verdict_id` is only known on a cache hit** (it arrives in your invocation when a prior verdict was reused); on a fresh triangle run the TRI id does not exist yet — omit the field, and report-compiler back-fills it from the `triangle_verdict` node it writes at batch-end.
+The top-level `criterion_scores` is the per-criterion roll-up across cells (means for numeric criteria; an aggregate like "any-cell-true" for boolean flags). `experiment_verdict` rolls the per-cell verdicts up per the rubric's pass condition (report-compiler maps PASS→SUPPORTED, FAIL→REFUTED on the verdict node). Provenance fields (`rubric_id`, `rubric_hash`, `judge_id`) are echoed here for convenience; report-compiler also has them from the lab-readiness `rubric_instrument` block. Do **not** emit `triangle_verdict_id` — report-compiler owns the DAG and resolves the verdict→triangle link itself (minting the TRI node on a fresh triangle, or looking up the existing one by rubric_hash+judge_id on a cache hit).
 7. **Commit results.** `feat(results/{experiment_id}): record judge-rubric sweep` — there is no eval-module change to commit, only the results JSON. Stage only that file.
 
 **Judge unreachability (every-cell-or-none).** If the declared judge model is unreachable at run time, STOP gracefully with `judge <id> unreachable: <error>; results not recorded` rather than writing a partial matrix. Partial-result handling for judge-rubric experiments is out of v1 — record every cell or none.
