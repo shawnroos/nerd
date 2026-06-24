@@ -1,6 +1,6 @@
 ---
 name: nerd-this
-description: "Context-scoped experiments. Researches only what you're working on right now — infers scope from your current branch, session files, and conversation topics, then groups findings into research themes and runs falsifiable experiments (numeric metric required) on them. Use instead of /nerd when you want focused research on your current work. Use with no args to auto-scope from context, or pass a topic to narrow further (e.g., /nerd-this auth flow)."
+description: "Context-scoped experiments. Researches only what you're working on right now — infers scope from your current branch, session files, and conversation topics, then groups findings into research themes and runs falsifiable experiments (numeric metric, or a pre-registered rubric judged by an LLM via rubric:<id>) on them. Use instead of /nerd when you want focused research on your current work. Use with no args to auto-scope from context, or pass a topic to narrow further (e.g., /nerd-this auth flow)."
 argument-hint: "[topic]"
 allowed-tools: "Read,Write,Edit,Bash,Glob,Grep,Agent,AskUserQuestion"
 ---
@@ -20,8 +20,9 @@ Before scope inference, check whether `$ARGUMENTS` is a **structured experiment 
 - `commit:<ref>` — "did this commit change the metric?" Run a sweep-of-one: baseline (the commit's parent) vs. the commit.
 - `hypothesis:<statement>` — a single falsifiable claim with a `metric:<command>` clause to measure it.
 - An optional `metric:<command>` clause names the numeric metric. Example: `/nerd-this commit:455cc59 metric:"cargo run -- eval latency"`
+- `rubric:<id-or-path>` — judge outputs against a pre-registered rubric instead of a numeric metric (`instrument: judge_rubric`). Value disambiguation: a **bare name** (`rubric:portrait-v3`) resolves to the library file `.nerd/rubrics/portrait-v3.yaml`; a value containing `/` or starting with `./` (`rubric:./scratch/my-rubric.yaml`) is an **inline file path**. Pair with an optional `judge:<model>` clause to name the judge, and optionally with `commit:<ref>` to judge a single commit's output. Example: `/nerd-this commit:455cc59 rubric:portrait-v3 judge:claude-opus-4-7`
 
-If a brief prefix is present, route to **Brief Mode** below and SKIP Phase 1 scope inference. If `$ARGUMENTS` has no brief prefix (or is empty), treat it as a free-text topic and proceed normally through Phase 1.
+The prefixes compose — `commit:`, `rubric:`, `judge:`, and `metric:` are parsed independently from `$ARGUMENTS`. If any brief prefix is present, route to **Brief Mode** below and SKIP Phase 1 scope inference. If `$ARGUMENTS` has no brief prefix (or is empty), treat it as a free-text topic and proceed normally through Phase 1.
 
 ### Brief Mode
 
@@ -30,11 +31,59 @@ A brief is a *different intent* from scope-discovery — it is the falsifiable-e
 1. **Resolve scope from the brief, not from session signals:**
    - `commit:<ref>` → scope is that commit's changed files: `git diff <ref>^..<ref> --name-only`. The comparison is `<ref>^` (baseline) vs. `<ref>` (HEAD-of-interest). **Root-commit guard:** if `<ref>` has no parent (`git rev-parse <ref>^` fails), compare against the empty tree instead — `git diff $(git hash-object -t tree /dev/null)..<ref> --name-only` — rather than letting `<ref>^` error out.
    - `hypothesis:<statement>` → scope is whatever files the hypothesis names or the current working changes; the statement seeds the first comparison.
+   - `rubric:<id-or-path>` with no `commit:` → scope is the current working state; the experiment is a one-shot rubric run (e.g. "score this prompt across these variants").
+   - `rubric:` **with** `commit:` → a sweep-of-one on the commit, judged by the rubric (combines the sweep-of-one shape with the judge instrument).
+
+**Then branch on instrument:**
+
+**Numeric brief** (no `rubric:` clause):
+
 2. **Require a trusted numeric metric** (consistent with the measurability bound). Take it from the `metric:` clause, or infer one. Run it through the **same sensitivity check lab-tech applies** (does the metric move under a known perturbation?). If there is no numeric metric, or it can't be verified sensitive, emit the same SETUP-NEEDED guidance lab-tech uses and STOP — do not fake a verdict.
 3. **Run the sweep-of-one** via the existing executor/report path (do NOT build a parallel runner): one comparison cell, baseline vs. the commit/change, producing a numeric KEEP / CHANGE / REFUTE verdict — the same output `/ce-debug` would give for "did this commit cause the regression?".
 4. **Record a `research_type: "hypothesis"` theory node** in the DAG (report-compiler) so the brief's verdict is remembered like any other experiment.
 
+**Rubric brief** (`rubric:` clause present):
+
+2. **Resolve and load the rubric** using the bare-id-vs-path disambiguation from the Detection rule above (bare name → `.nerd/rubrics/<id>.yaml`; `/` or `./` → inline path). If the library file is missing: `BLOCKER: rubric file .nerd/rubrics/<id>.yaml not found; create it or check the id.` If it exists but fails to parse: `BLOCKER` with the parser error and line number. The rubric carries an `instrument: judge_rubric` experiment plus the declared `judge:` (or the rubric's `default_judge`).
+3. **Run lab-tech's judge-instrument gate, not the numeric sensitivity check** — hash-lock, fixture-pair sensitivity, cached triangle (the same Check 3 gate `/nerd` uses; see `agents/lab-tech.md`). If the gate BLOCKERs (anchors missing, judge insensitive, judge fails the triangle, rubric hash mismatch), emit the BLOCKER and STOP — do not fake a verdict.
+4. **Run the cell(s)** via the existing executor/report path (the executor's judge-rubric branch — do NOT build a parallel runner): each cell judged against the rubric, producing per-criterion scores and a PASS/FAIL verdict per the rubric's `pass_condition`. A bare `rubric:` is a 1-cell run; `rubric:` + `commit:` compares the commit's output against the rubric.
+5. **Record provenance** via report-compiler: a `research_type: "experiment"` theory node, a verdict node carrying `rubric_id`/`rubric_hash`/`judge_id`/`triangle_verdict_id`/`criterion_scores`, and the `rubric`/`triangle_verdict` DAG nodes (so the same rubric reused later hits the triangle cache).
+
 Then skip to Phase 4+ (Experiment Design → execution) with this single experiment; Phases 1–3's discovery/theming are not needed for a brief.
+
+### Rubric library convention (`.nerd/rubrics/<id>.yaml`)
+
+A rubric is a **pure-YAML file** (one YAML document — no markdown `---` frontmatter separator), readable by lab-tech and the executor for structured fields. Top-of-file metadata keys, then the rubric body:
+
+```yaml
+id: portrait-v3
+version: 3
+created_at: 2026-06-23
+created_by: shawn            # optional
+used_in: [E004]              # back-references, append-only
+default_judge: claude-opus-4-7   # optional
+triangle_cache_days: 30      # optional positive integer; absent or <= 0 is treated as the default 30 (never "always stale")
+
+criteria:
+  - name: subject_identity   # the headline criterion is the first listed
+    scale: "1-5 Likert"
+    anchor_examples: "5 = same person unmistakably; 1 = clearly a different person"
+    pass_condition: "mean >= 4.0"
+    theory_tag: identity-preserved   # optional — mirrors the "Theory Tested" column in research plans
+  - name: face_drift
+    scale: "boolean"
+    pass_condition: "no cell == true"
+min_anchor_separation: 1.0   # default 1.0 for a 1-5 Likert headline criterion
+default_anchors:             # used when an experiment doesn't supply its own anchors (R8)
+  good: fixtures/portrait/good.png
+  bad: fixtures/portrait/bad.png
+```
+
+**Per-experiment anchor override (R8):** if the experiment plan declares its own `anchors: {good, bad}`, lab-tech uses those for that experiment's fixture-pair and triangle checks; the library file's `default_anchors` are the fallback and are never modified. `.nerd/rubrics/` is a *defaults registry*, not an enforcer.
+
+**Strict pre-registration (R5):** the rubric is content-hashed (sha256 of the raw file bytes) at first judge use. A substantive edit changes the hash and is refused on the next run with a fork instruction — copy the file to a new id, edit, and re-run with `rubric:<new-id>`. There is no in-band amendment in v1.
+
+**Worked example:** `docs/research/examples/portrait-v3.yaml` (a complete rubric) and `docs/research/examples/E-RUBRIC-EXAMPLE-plan.md` (the experiment plan that uses it); `docs/research/fixtures/dag-rubric-example.json` shows the resulting DAG nodes.
 
 ## Pre-flight
 
@@ -426,12 +475,22 @@ In scheduled mode: execute all.
 
 Before spinning up expensive experiment agents, validate that the lab is ready.
 
+**Rubric-instrument pre-flight context (judge_rubric experiments only — e.g. a `rubric:` brief).** If any experiment in the batch declares `instrument: judge_rubric`, the orchestrator first queries the project DAG for `rubric` and `triangle_verdict` nodes matching the batch's rubrics and judges, and renders them into a filtered-markdown block injected into lab-tech's prompt — orchestrator-mediated reads per `docs/solutions/architecture-decisions/research-dag-cross-session-memory.md` (lab-tech never parses raw DAG JSON). Same mechanism and block format as `/nerd` Phase 5; full sha256 hashes for byte-exact matching:
+
+```
+Rubric on file: portrait-v3 hash=<full-sha256> source=.nerd/rubrics/portrait-v3.yaml
+Triangle verdicts on file: (rubric_hash=<full-sha256>, judge=claude-opus-4-7) PASS 13/15 verified 2026-05-12
+```
+
+Omit the block for batches with no rubric experiments.
+
 ```
 Agent(subagent_type="nerd:lab-tech", prompt="
 Validate readiness for experiments: {comma-separated plan paths}.
 Project root: {cwd}. Language: {lang}. Test command: {test_cmd}. Build command: {build_cmd}.
 Project DAG path: {dag_path}. Max parallel experiments: {max_parallel_experiments}.
 Run all checks: data access, config wiring, eval commands, tool availability, worktree readiness, cross-experiment conflicts, and build infrastructure (Check 7).
+For any experiment declaring instrument: judge_rubric, run the judge-instrument gate (Check 3) instead of the numeric sensitivity check. On-file rubric hashes and cached triangle verdicts (orchestrator-injected; do not read the DAG directly): {rubric_triangle_block}
 Check 7: Profile the build, detect sccache, select cache strategy, set up caching, write build_cache config to .claude/nerd.local.md. Read infra nodes from the DAG for prior cache verdicts.
 If any experiments have research_type: performance, also run Check 8 (Performance Profiling Readiness): 8a tool availability for profiling tools, 8b determinism validation of metric commands, 8c build mode check for debug symbols, 8d build cache awareness for profiling flags.
 Scaffold any missing infrastructure (export scripts, test fixtures). Do NOT create the eval module — Phase 8.1 handles that.
@@ -462,6 +521,8 @@ If no eval module exists, create a scaffold appropriate to the project language.
 
 For each `planned` experiment, create the worktree by following **`skills/worktree-lifecycle` §Create** (canonical procedure — run its bash verbatim; handles the empty/detached-HEAD guard and branch-collision suffix). Use the `$WT_BRANCH` it sets in this experiment's later merge/cleanup.
 
+**Numeric experiments** (`instrument: numeric_metric` or absent):
+
 ```
 Agent(subagent_type="nerd:experiment-executor", prompt="
 Execute plan at docs/research/plans/{entry.id}-plan.md.
@@ -471,6 +532,19 @@ Write results to docs/research/results/{entry.id}-results.json.
 Before building, read .claude/nerd.local.md for build_cache_strategy and build_cache_env.
 If build_cache_env is set, prefix all build commands with it inline (e.g., for Rust: RUSTC_WRAPPER=sccache cargo build).
 If a build fails with cache, retry without it and add cache_fallback: true to results JSON.
+", run_in_background=true)
+```
+
+**Rubric-judged experiments** (`instrument: judge_rubric` — e.g. a `rubric:` brief): no harness to build, so skip the build phase and launch `phase=run` directly (same as `/nerd` Phase 6c). Carry the rubric, judge, and locked hash forward:
+
+```
+Agent(subagent_type="nerd:experiment-executor", prompt="
+phase=run
+Execute plan at docs/research/plans/{entry.id}-plan.md. instrument: judge_rubric.
+Worktree: {path}. Language: {lang}. Tests: {test_cmd}.
+Rubric: {entry.rubric}  (library id or inline path). Judge: {entry.judge_id}.
+Locked rubric hash: {entry.rubric_hash}  (from the lab-readiness rubric_instrument block; abort with rubric_hash_drift_detected if the file no longer matches).
+Do NOT build or expect a committed harness. Run the judge-rubric branch: judge each cell against the rubric, evaluate the pass condition, write results to docs/research/results/{entry.id}-results.json. Commit the results.
 ", run_in_background=true)
 ```
 

@@ -1,6 +1,6 @@
 ---
 name: nerd
-description: "Let the nerd loose on your codebase. Designs and runs rigorous experiments — any falsifiable question with a measurable numeric metric, from parameter sweeps to single-commit hypothesis tests — in worktrees while you sleep, and delivers findings. Use with no args to nerd out on everything, or pass a topic to focus (e.g., /nerd search relevance)."
+description: "Let the nerd loose on your codebase. Designs and runs rigorous experiments — any falsifiable question with a trusted instrument, whether a measurable numeric metric (parameter sweeps, single-commit hypothesis tests) or an LLM judge scoring against a pre-registered rubric — in worktrees while you sleep, and delivers findings. Use with no args to nerd out on everything, or pass a topic to focus (e.g., /nerd search relevance)."
 argument-hint: "[topic]"
 allowed-tools: "Read,Write,Edit,Bash,Glob,Grep,Agent,AskUserQuestion"
 ---
@@ -270,9 +270,10 @@ Combine parameter findings and performance findings into a unified candidate lis
 **Classify all findings by measurability:**
 
 Split into groups:
-- **Experimentable (provisional)**: Findings where a shell command can measure the effect (parameter sweeps, benchmarks, I/O counts). Has a valid `experiment_type` like `parameter_sweep`, `comparison`, `ablation`, `algo_benchmark`, `io_benchmark`, `memory_benchmark`, `cache_benchmark`, `network_benchmark`. **"Experimentable" here is provisional — it means a sweepable value exists, not that the metric is trusted.** Lab-tech (Phase 4.5) verifies the metric is actually *sensitive* to change; a finding whose metric does not respond to a known perturbation, or whose data prerequisites are unmet, is demoted to **instrument-blocked** and does NOT proceed to execution until the instrument is fixed.
+- **Experimentable (provisional)**: Findings where a shell command can measure the effect (parameter sweeps, benchmarks, I/O counts). Has a valid `experiment_type` like `parameter_sweep`, `comparison`, `ablation`, `algo_benchmark`, `io_benchmark`, `memory_benchmark`, `cache_benchmark`, `network_benchmark`. **"Experimentable" here is provisional — it means a sweepable value exists, not that the metric is trusted.** Lab-tech (Phase 5) verifies the metric is actually *sensitive* to change; a finding whose metric does not respond to a known perturbation, or whose data prerequisites are unmet, is demoted to **instrument-blocked** and does NOT proceed to execution until the instrument is fixed.
 - **Analytical**: Findings where the only evaluation is human judgment or code review (has `experiment_type: "analytical"` or `measurability: "analytical"`).
 - **Instrument-blocked** (assigned by lab-tech, not at scan time): a finding that looked experimentable but has no trusted/sensitive metric or unmet data prerequisites. Surfaced as a blocker for the user to fix, not run.
+- **Rubric-judged** (declared by the experiment author, not at scan time): an experiment whose plan declares `instrument: judge_rubric` — evaluated by an LLM judge against a pre-registered rubric instead of a numeric metric. This is the *expected positive* route for a qualitative sweep (rendered images, prompts, model outputs), distinct from instrument-blocked (a *failure* outcome): a rubric-judged experiment proceeds to lab-tech's **judge-instrument gate** (Check 3) in Phase 5, and only becomes instrument-blocked if it *fails* that gate (anchors missing, judge insensitive, judge fails the triangle test, or rubric hash mismatch). A plan that declares `instrument: judge_rubric` but no `rubric:` field is a BLOCKER here, before lab-tech runs: `instrument: judge_rubric requires a rubric: field naming a library id or path.` Because rubric mode is author-declared (the parameter/performance scanners do not emit rubric findings), rubric experiments arrive as hand-authored plans or via `/nerd-this` brief mode — they do not use the Phase 3 parameter/performance plan-reviewer templates, so no rubric variant of those templates is needed.
 
 **Deduplication for performance findings:** Use `dedup_key` (format: `file:function:metric_type`). If the backlog already has an entry with the same dedup_key, skip it.
 
@@ -302,8 +303,9 @@ Which ones should the nerd investigate?
 
 Use AskUserQuestion to let the user select. Add selections to backlog.
 
-Experimentable findings proceed to Phase 3 (experiment design → worktree execution) — but only those that survive lab-tech's sensitivity + data-prerequisite checks in Phase 4.5. Findings demoted to **instrument-blocked** there are pulled from the batch and surfaced to the user with the instrument fix needed.
+Experimentable findings proceed to Phase 3 (experiment design → worktree execution) — but only those that survive lab-tech's sensitivity + data-prerequisite checks in Phase 5. Findings demoted to **instrument-blocked** there are pulled from the batch and surfaced to the user with the instrument fix needed.
 Analytical findings proceed to Phase 3 but use the plan-reviewer for **analytical review** — generating competing theories and reasoned recommendations without building sweep harnesses.
+Rubric-judged findings proceed to Phase 3 and Phase 5 like experimentable findings, but lab-tech runs the **judge-instrument gate** (Check 3) instead of the numeric sensitivity check, and Phase 6c runs them through the executor's judge-rubric branch (no harness to build — see the rubric note in Phase 6c). A rubric-judged experiment that fails the gate is demoted to instrument-blocked, exactly like a numeric experiment with an insensitive metric.
 
 ## Phase 3: Experiment Design
 
@@ -329,12 +331,22 @@ Present plans. Use AskUserQuestion: "Plans ready. Execute all, review first, or 
 
 Before spinning up expensive experiment agents, validate that the lab is ready.
 
+**Rubric-instrument pre-flight context (judge_rubric batches only).** If any experiment in the batch declares `instrument: judge_rubric`, the orchestrator first queries the project DAG for `rubric` and `triangle_verdict` nodes matching the batch's rubrics and judges, and renders them into a filtered-markdown block injected into lab-tech's prompt. lab-tech must not parse raw DAG JSON — these are orchestrator-mediated reads per `docs/solutions/architecture-decisions/research-dag-cross-session-memory.md`. The block carries **full** sha256 hashes (not prefixes) so lab-tech's hash-lock check can match byte-for-byte:
+
+```
+Rubric on file: portrait-v3 hash=<full-sha256> source=.nerd/rubrics/portrait-v3.yaml
+Triangle verdicts on file: (rubric_hash=<full-sha256>, judge=claude-opus-4-7) PASS 13/15 verified 2026-05-12; (rubric_hash=<full-sha256>, judge=claude-opus-4-7) FAIL 6/15 verified 2026-04-30
+```
+
+lab-tech's judge-instrument gate (Check 3) reads this block for its hash-lock and triangle-cache sub-checks. Omit the block (and the `{rubric_triangle_block}` prompt line) for batches with no rubric experiments — it is inert there.
+
 ```
 Agent(subagent_type="nerd:lab-tech", prompt="
 Validate readiness for experiments: {comma-separated plan paths}.
 Project root: {cwd}. Language: {lang}. Test command: {test_cmd}. Build command: {build_cmd}.
 Project DAG path: {dag_path}. Max parallel experiments: {max_parallel_experiments}.
 Run all checks: data access, config wiring, eval commands, tool availability, worktree readiness, cross-experiment conflicts, and build infrastructure (Check 7).
+For any experiment declaring instrument: judge_rubric, run the judge-instrument gate (Check 3) instead of the numeric sensitivity check. On-file rubric hashes and cached triangle verdicts (orchestrator-injected; do not read the DAG directly): {rubric_triangle_block}
 Check 7: Profile the build, detect sccache, select cache strategy, set up caching, write build_cache config to .claude/nerd.local.md. Read infra nodes from the DAG for prior cache verdicts.
 If any experiments have research_type: performance, also run Check 8 (Performance Profiling Readiness): 8a tool availability for profiling tools, 8b determinism validation of metric commands, 8c build mode check for debug symbols, 8d build cache awareness for profiling flags.
 Scaffold any missing infrastructure (export scripts, test fixtures). Do NOT create the eval module — Phase 6b handles that.
@@ -443,6 +455,23 @@ Re-read the plan and the committed harness, run the sweep, and write results to 
 ```
 
 For `has_harness: true` experiments the harness already exists in the eval module on `$CURRENT_BRANCH`, so it is present in the worktree created from that branch (Phase 6c, above) — skip `phase=build` and launch `phase=run` directly. Cap *concurrent experiments* at `max_parallel_experiments` from config; within each experiment, build→run is sequential, so an experiment occupies one slot across both its phases.
+
+**Rubric-judged experiments (`instrument: judge_rubric`) have no harness to build.** Like `has_harness: true` experiments, skip `phase=build` entirely and launch only `phase=run` — there is no metric command to wire into an eval module; the judge is the instrument. The run invocation carries the rubric and judge forward so the executor's judge-rubric branch knows what to score against:
+
+```
+# Phase run (judge-rubric) — no harness; the judge scores each cell against the rubric.
+Agent(subagent_type="nerd:experiment-executor", prompt="
+phase=run
+Execute plan at docs/research/plans/{entry.id}-plan.md. instrument: judge_rubric.
+Worktree: {path}. Language: {lang}. Tests: {test_cmd}.
+Rubric: {entry.rubric}  (library id or inline path). Judge: {entry.judge_id}.
+Locked rubric hash: {entry.rubric_hash}  (read from the lab-readiness rubric_instrument block; the executor re-hashes the rubric file and aborts with rubric_hash_drift_detected if it no longer matches).
+The rubric is already hash-locked (lab-tech Check 3 passed). Do NOT build or expect a committed harness.
+Run the judge-rubric branch: for each cell, invoke the judge against the rubric, collect per-criterion scores, evaluate the pass condition, and write results to docs/research/results/{entry.id}-results.json. Commit the results.
+", run_in_background=true)
+```
+
+(The executor's internal judge-rubric branch — what `phase=run` does when `instrument: judge_rubric` — is defined in `agents/experiment-executor.md`. If a caller ever invokes `phase=build` on a rubric experiment anyway, the executor returns immediately with "no harness needed for judge-rubric mode" rather than building one.)
 
 ### Phase 6d: Intern Result Classification
 
