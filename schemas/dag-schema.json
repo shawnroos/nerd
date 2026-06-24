@@ -59,7 +59,14 @@
           "description": "Optional — per-criterion scores from the rubric. Keys are criterion names; values are numeric scores (e.g. Likert means) or booleans (e.g. pass/fail flags like face_drift).",
           "additionalProperties": { "type": ["number", "boolean"] }
         }
-      }
+      },
+      "allOf": [
+        {
+          "$comment": "Rubric-judged verdicts must carry full provenance. If rubric_id is present, the rest of the rubric fields become required — this catches a partially-written rubric verdict at validation time. Numeric verdicts (no rubric_id) are unaffected.",
+          "if": { "required": ["rubric_id"] },
+          "then": { "required": ["rubric_hash", "judge_id", "triangle_verdict_id", "criterion_scores"] }
+        }
+      ]
     },
 
     "build_profile_node": {

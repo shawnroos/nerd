@@ -62,7 +62,7 @@ created_at: 2026-06-23
 created_by: shawn            # optional
 used_in: [E004]              # back-references, append-only
 default_judge: claude-opus-4-7   # optional
-triangle_cache_days: 30      # optional, default 30
+triangle_cache_days: 30      # optional positive integer; absent or <= 0 is treated as the default 30 (never "always stale")
 
 criteria:
   - name: subject_identity   # the headline criterion is the first listed
@@ -81,7 +81,9 @@ default_anchors:             # used when an experiment doesn't supply its own an
 
 **Per-experiment anchor override (R8):** if the experiment plan declares its own `anchors: {good, bad}`, lab-tech uses those for that experiment's fixture-pair and triangle checks; the library file's `default_anchors` are the fallback and are never modified. `.nerd/rubrics/` is a *defaults registry*, not an enforcer.
 
-**Strict pre-registration (R5):** the rubric is content-hashed at first judge use. A substantive edit changes the hash and is refused on the next run with a fork instruction — copy the file to a new id, edit, and re-run with `rubric:<new-id>`. There is no in-band amendment in v1.
+**Strict pre-registration (R5):** the rubric is content-hashed (sha256 of the raw file bytes) at first judge use. A substantive edit changes the hash and is refused on the next run with a fork instruction — copy the file to a new id, edit, and re-run with `rubric:<new-id>`. There is no in-band amendment in v1.
+
+**Worked example:** `docs/research/examples/portrait-v3.yaml` (a complete rubric) and `docs/research/examples/E-RUBRIC-EXAMPLE-plan.md` (the experiment plan that uses it); `docs/research/fixtures/dag-rubric-example.json` shows the resulting DAG nodes.
 
 ## Pre-flight
 
