@@ -90,7 +90,7 @@ if [ ! -f "$DAG_DIR/index.json" ]; then
 fi
 
 # Verify project_path matches current directory (detect slug collisions)
-stored_path=$(python3 -c "import json; print(json.load(open('$DAG_PATH')).get('project_path',''))" 2>/dev/null)
+stored_path=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("project_path",""))' "$DAG_PATH" 2>/dev/null)
 if [ -n "$stored_path" ] && [ "$stored_path" != "$PWD" ]; then
     echo "ERROR: DAG slug collision — $DAG_PATH belongs to $stored_path, not $PWD. Cannot use the same DAG for different projects. Rename one project directory or manually move the DAG file."
     # Do not proceed with DAG operations — set dag_path to empty so agents skip DAG features

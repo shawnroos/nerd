@@ -188,7 +188,7 @@ Follow the same crash-safe write protocol as report-compiler:
 
 1. `cp "{global_index_path}" "{global_index_path}.bak"`
 2. Write complete updated JSON to `{global_index_path}.tmp`
-3. Validate: `python3 -c "import json; json.load(open('{global_index_path}.tmp'))" 2>/dev/null`
+3. Validate: `python3 -c 'import json,sys; json.load(open(sys.argv[1]))' "{global_index_path}.tmp" 2>/dev/null`
 4. If valid: `mv "{global_index_path}.tmp" "{global_index_path}"`
 5. If invalid: remove `.tmp`, report error, continue without synthesis write
 

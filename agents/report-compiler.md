@@ -320,7 +320,7 @@ Also create the new theory node (with `spawned_from` set to the verdict ID).
 
 4. **Validate** the JSON:
    ```bash
-   python3 -c "import json; json.load(open('{dag_path}.tmp'))" 2>/dev/null
+   python3 -c 'import json,sys; json.load(open(sys.argv[1]))' "{dag_path}.tmp" 2>/dev/null
    ```
    If validation fails: remove the `.tmp` file, report the error, and continue without DAG write. The reports are already written — DAG write failure should not block the pipeline.
 
