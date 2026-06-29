@@ -300,7 +300,7 @@ Context: {conversation_summary — what the user is working on, why, key decisio
 
 Start IDs from: {computed_start_id}
 
-(Before this Agent call, compute the start ID: parse all `id:` fields in the backlog YAML, extract the numeric suffix from each (e.g., E042 → 42), take the maximum, add 1, zero-pad to 3 digits, prefix with E. If backlog is empty or has no valid IDs, use E001.)
+**Compute `{computed_start_id}` first — this is a prerequisite of the Agent call above, not a later step.** Parse all `id:` fields in the backlog YAML, extract the numeric suffix from each (e.g., E042 → 42), take the maximum, add 1, zero-pad to 3 digits, prefix with E. If the backlog is empty or has no valid IDs, use E001.
 
 Return structured JSON with themed parameter groups.
 ", run_in_background=true)

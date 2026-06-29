@@ -145,9 +145,13 @@ For Rust projects running parallel worktree experiments, redundant dependency co
 3. **report-compiler** records whether the cache strategy worked (cache_verdict nodes in the DAG)
 4. Next run, lab-tech reads prior cache verdicts and skips strategies that failed
 
-## Passive Discovery
+## On-Demand Discovery
 
-A `PostToolUse` hook watches as you code. When you write hardcoded thresholds or magic numbers, the nerd silently adds them to the backlog. Next `/nerd` run, there's already a queue waiting.
+Run `/nerd-this` (scoped to what you're working on) or `/nerd` to scan for hardcoded
+thresholds and magic numbers and add strong candidates to the backlog as `proposed`
+experiments. (Earlier versions ran a `PostToolUse` hook that scanned after every edit;
+it was removed in 0.1.3 — firing on every Write/Edit interrupted every turn. Scanning is
+now on demand.)
 
 ## Pipeline
 

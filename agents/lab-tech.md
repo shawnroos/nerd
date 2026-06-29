@@ -284,7 +284,7 @@ For compiled-language projects in batch mode, select the best strategy:
 
 1. **Cache tool available** (e.g., sccache for Rust, ccache for C/C++): Use it. These cache daemons are safe for concurrent builds — each worktree compiles independently, but the cache deduplicates identical compilation units.
 
-2. **No cache tool available**: Use `artifact_copy`. Build dependencies once in the main worktree, then clone the build output directory to each worktree using copy-on-write:
+2. **No cache tool available**: Use `artifact_copy`. Build dependencies once in the main worktree, then clone the build output directory to each worktree using copy-on-write. Only select `artifact_copy` when `{build_dir}` is a known, non-empty directory — an empty value makes the copy expand to the whole project root. With a valid `{build_dir}`:
    - macOS (APFS): `cp -c -r {build_dir}/ worktrees/nerd-{id}/{build_dir}/`
    - Linux (btrfs): `cp --reflink=auto -r {build_dir}/ worktrees/nerd-{id}/{build_dir}/`
 

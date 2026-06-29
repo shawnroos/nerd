@@ -398,12 +398,16 @@ If no eval module exists (check first — lab-tech in Phase 5 does NOT create it
 
 For each `planned` experiment, create the worktree by following **`skills/worktree-lifecycle` §Create** (canonical procedure — run its bash verbatim; it handles the empty/detached-HEAD guard and the branch-collision suffix). It sets `$WT_BRANCH` to the actually-created branch name; use that (not the literal `nerd/{entry.id}`) in this experiment's later merge and cleanup steps.
 
-If `artifact_copy` strategy, clone build artifacts using copy-on-write. The build output directory varies by language (e.g., `target/` for Rust, `node_modules/.cache` for JS, `__pycache__` for Python):
+If `artifact_copy` strategy, clone build artifacts using copy-on-write. The build output directory varies by language (e.g., `target/` for Rust, `node_modules/.cache` for JS, `__pycache__` for Python). **Guard: only run the copy when `{build_output_dir}` is a non-empty, existing directory** — an empty value expands to `"$PROJECT_ROOT/"` and would copy the entire project root into the worktree. If `build_output_dir` is empty/unset, skip artifact_copy (it requires a known build dir):
 ```bash
-# macOS (APFS):
-cp -c -r "$PROJECT_ROOT/{build_output_dir}/" "$PROJECT_ROOT/worktrees/nerd-{entry.id}/{build_output_dir}/" 2>/dev/null
+# macOS (APFS) — guarded against an empty build_output_dir:
+if [ -n "{build_output_dir}" ] && [ -d "$PROJECT_ROOT/{build_output_dir}" ]; then
+  cp -c -r "$PROJECT_ROOT/{build_output_dir}/" "$PROJECT_ROOT/worktrees/nerd-{entry.id}/{build_output_dir}/" 2>/dev/null
+fi
 # Linux (btrfs):
-# cp --reflink=auto -r "$PROJECT_ROOT/{build_output_dir}/" "$PROJECT_ROOT/worktrees/nerd-{entry.id}/{build_output_dir}/" 2>/dev/null
+# if [ -n "{build_output_dir}" ] && [ -d "$PROJECT_ROOT/{build_output_dir}" ]; then
+#   cp --reflink=auto -r "$PROJECT_ROOT/{build_output_dir}/" "$PROJECT_ROOT/worktrees/nerd-{entry.id}/{build_output_dir}/" 2>/dev/null
+# fi
 ```
 
 **Scheduled-mode harness gate (`NERD_SCHEDULED=1`):** read `has_harness` for each experiment from the lab-readiness report. For experiments where `has_harness: false`, do NOT launch a full autonomous executor — building the harness is the token-heavy phase that exhausts the executor's tool budget before it can measure (the recurring S025 failure). Instead, **append the deferred experiment to `docs/research/deferred-experiments.md`** (id, reason `has_harness:false`, and the lab-readiness setup note) so it is a visible breadcrumb for the next supervised run, not silently dropped from the batch — then continue with the `has_harness: true` ones. In interactive mode, all experiments run (the user can intervene if an executor stalls).
