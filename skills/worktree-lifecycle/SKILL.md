@@ -54,9 +54,10 @@ git checkout "$CURRENT_BRANCH"
 if [ -n "$(git status --porcelain)" ]; then
   echo "WARN: working tree dirty on $CURRENT_BRANCH — skipping merge of $WT_BRANCH to avoid clobbering; mark deferred." >&2
 else
+  PRE=$(git rev-parse HEAD)     # capture pre-merge tip BEFORE merging
   if git merge "$WT_BRANCH" --no-edit; then
     if ! {test_command}; then
-      git reset --hard HEAD~1   # tests failed AFTER a clean merge → undo the merge commit; KEEP worktree (debuggable)
+      git reset --hard "$PRE"   # tests failed AFTER a clean merge → return to the exact pre-merge commit; KEEP worktree (debuggable)
     fi
   else
     git merge --abort           # merge CONFLICTED → abort (no merge commit to drop); KEEP worktree
@@ -64,7 +65,14 @@ else
 fi
 ```
 
-A conflicted merge leaves no merge commit, so `git reset --hard HEAD~1` would destroy a real prior commit — use `git merge --abort` for conflicts and reserve `reset --hard HEAD~1` for the "merged clean but tests failed" case only.
+Reset to the **captured pre-merge SHA** (`$PRE`), not `HEAD~1`. A worktree branch
+typically carries ≥2 commits (the two-phase executor commits a build harness and the
+results), so when `$CURRENT_BRANCH` has not moved since the worktree was cut, the merge
+**fast-forwards** — advancing HEAD by all of the branch's commits, not creating a single
+merge commit. `git reset --hard HEAD~1` would then rewind only one commit and leave the
+rest applied to the source branch (a half-merged, test-failing state). `$PRE` returns the
+branch to exactly where it was regardless of fast-forward vs merge-commit. A conflicted
+merge leaves no commit at all, so it still takes `git merge --abort`.
 
 If the merge succeeded and tests passed, clean up — gated on the cleanup gate above (run the **Cleanup gate** sub-step first so `cleanup_allowed` is defined in this shell):
 
