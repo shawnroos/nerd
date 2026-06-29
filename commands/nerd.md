@@ -347,7 +347,7 @@ Project root: {cwd}. Language: {lang}. Test command: {test_cmd}. Build command: 
 Project DAG path: {dag_path}. Max parallel experiments: {max_parallel_experiments}.
 Run all checks: data access, config wiring, eval commands, tool availability, worktree readiness, cross-experiment conflicts, and build infrastructure (Check 7).
 For any experiment declaring instrument: judge_rubric, run the judge-instrument gate (Check 3) instead of the numeric sensitivity check. On-file rubric hashes and cached triangle verdicts (orchestrator-injected; do not read the DAG directly): {rubric_triangle_block}
-Check 7: Profile the build, detect sccache, select cache strategy, set up caching, write build_cache config to .claude/nerd.local.md. Read infra nodes from the DAG for prior cache verdicts.
+Check 7: Profile the build, detect sccache, select cache strategy, set up caching, write build_cache config to .claude/nerd.local.md (append/update the `build_cache_*` keys via Edit — never full-Write the file, which would drop sibling `intern:`/`test_command`/`backlog:` sections; the file is gitignored and unrecoverable). Read infra nodes from the DAG for prior cache verdicts.
 If any experiments have research_type: performance, also run Check 8 (Performance Profiling Readiness): 8a tool availability for profiling tools, 8b determinism validation of metric commands, 8c build mode check for debug symbols, 8d build cache awareness for profiling flags.
 Scaffold any missing infrastructure (export scripts, test fixtures). Do NOT create the eval module — Phase 6b handles that.
 Write report to docs/research/lab-readiness-batch-{timestamp}.md.

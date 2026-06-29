@@ -311,7 +311,12 @@ If strategy is **artifact_copy**, run the build command to populate the build ou
 
 #### 7e. Configuration Handoff (batch mode only)
 
-Write the cache configuration to `.claude/nerd.local.md` so experiment-executors can read it:
+Write the cache configuration to `.claude/nerd.local.md` so experiment-executors can read
+it. **Use the Edit tool to insert/update only the `build_cache_*` keys — never rewrite the
+whole file with Write.** `.claude/nerd.local.md` is gitignored and co-hosts `intern:`,
+`test_command`, and the `backlog:` array; a full-file write would drop them. If a full
+rewrite is ever unavoidable, back up first (`cp .claude/nerd.local.md
+.claude/nerd.local.md.bak`), write to `.tmp`, then `mv` into place.
 
 ```yaml
 build_cache_strategy: sccache          # or artifact_copy, incremental, none
