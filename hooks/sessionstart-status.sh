@@ -27,13 +27,22 @@ if [ -f "$BACKLOG" ]; then
   fi
 
   # Stale 'running' experiments whose worktree is missing (possible crashed session).
-  running=$(grep -c '^[[:space:]]*status: running' "$BACKLOG" 2>/dev/null || true)
-  running=${running:-0}
-  if [ "$running" -gt 0 ] 2>/dev/null; then
-    worktrees=$(git worktree list 2>/dev/null | grep -c 'nerd-' || true)
-    worktrees=${worktrees:-0}
-    if [ "$running" -gt "$worktrees" ] 2>/dev/null; then
-      messages+=("Nerd: ${running} experiment(s) marked running but worktrees missing (possible crashed session). Run /nerd to recover.")
+  # Match each running entry's id (id: precedes status: within an entry) against its
+  # SPECIFIC experiment worktree (worktrees/nerd-{id}). A count/substring comparison
+  # would over-match unrelated worktrees — e.g. the repo's own worktrees/nerd-fixes —
+  # and silently drop the warning.
+  running_ids=$(awk '/^[[:space:]]*-?[[:space:]]*id:/{id=$NF} /^[[:space:]]*status: running/{print id}' "$BACKLOG" 2>/dev/null || true)
+  if [ -n "$running_ids" ]; then
+    wt_list=$(git worktree list 2>/dev/null || true)
+    missing=0
+    while IFS= read -r rid; do
+      [ -z "$rid" ] && continue
+      if ! printf '%s\n' "$wt_list" | grep -q "worktrees/nerd-${rid}[[:space:]]"; then
+        missing=$((missing + 1))
+      fi
+    done <<< "$running_ids"
+    if [ "$missing" -gt 0 ] 2>/dev/null; then
+      messages+=("Nerd: ${missing} experiment(s) marked running but worktree missing (possible crashed session). Run /nerd to recover.")
     fi
   fi
 fi
@@ -84,14 +93,23 @@ PY
 fi
 
 # --- Intern endpoint reachability (bounded, local; only if configured + enabled) ---
-if [ -f "$BACKLOG" ] && grep -q '^[[:space:]]*enabled: true' "$BACKLOG" 2>/dev/null; then
-  endpoint=$(awk '/^intern:/{f=1;next} f&&/^[^[:space:]]/{f=0} f&&/[[:space:]]endpoint:/{print $2; exit}' "$BACKLOG" 2>/dev/null || true)
-  endpoint=${endpoint:-}
-  if [ -n "$endpoint" ]; then
-    # Bounded local check: -m 1 keeps SessionStart fast even if the endpoint hangs.
-    if ! curl -s -m 1 -o /dev/null "$endpoint" 2>/dev/null; then
-      messages+=("Intern: endpoint unreachable.")
-    fi
+# Parse `enabled` and `endpoint` from WITHIN the intern: block — a sibling section's
+# `enabled: true` must not trigger the probe. Only probe when curl exists (a missing
+# curl is "can't tell", not "unreachable") and the endpoint is an http(s) URL — the
+# scheme check also rejects a leading '-' that curl would otherwise read as an option.
+if [ -f "$BACKLOG" ] && command -v curl >/dev/null 2>&1; then
+  intern_block=$(awk '/^intern:/{f=1;next} f&&/^[^[:space:]]/{f=0} f' "$BACKLOG" 2>/dev/null || true)
+  if printf '%s\n' "$intern_block" | grep -q '[[:space:]]enabled: true'; then
+    endpoint=$(printf '%s\n' "$intern_block" | awk '/[[:space:]]endpoint:/{print $2; exit}' 2>/dev/null || true)
+    endpoint=${endpoint:-}
+    case "$endpoint" in
+      http://*|https://*)
+        # Bounded check: -m 1 keeps SessionStart fast even if the endpoint hangs.
+        if ! curl -s -m 1 -o /dev/null -- "$endpoint" 2>/dev/null; then
+          messages+=("Intern: endpoint unreachable.")
+        fi
+        ;;
+    esac
   fi
 fi
 
@@ -102,13 +120,11 @@ fi
 
 context=$(printf '%s ' "${messages[@]}")
 context=${context% }
-python3 - "$context" <<'PY' 2>/dev/null || true
-import json, sys
-print(json.dumps({
-    "hookSpecificOutput": {
-        "hookEventName": "SessionStart",
-        "additionalContext": sys.argv[1],
-    }
-}))
-PY
+# Emit additionalContext as JSON WITHOUT a python3 dependency, so a backlog nudge still
+# fires on a python3-less machine (python3 above is optional, for intern state only).
+# Escape backslash first, then double-quote; messages are single-line (joined with
+# spaces, no embedded newlines), so these two escapes are sufficient for valid JSON.
+context=${context//\\/\\\\}
+context=${context//\"/\\\"}
+printf '{"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": "%s"}}\n' "$context"
 exit 0
