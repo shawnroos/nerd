@@ -300,7 +300,7 @@ Context: {conversation_summary — what the user is working on, why, key decisio
 
 Start IDs from: {computed_start_id}
 
-(Before this Agent call, compute the start ID: parse all `id:` fields in the backlog YAML, extract the numeric suffix from each (e.g., E042 → 42), take the maximum, add 1, zero-pad to 3 digits, prefix with E. If backlog is empty or has no valid IDs, use E001.)
+**Compute `{computed_start_id}` first — this is a prerequisite of the Agent call above, not a later step.** Parse all `id:` fields in the backlog YAML, extract the numeric suffix from each (e.g., E042 → 42), take the maximum, add 1, zero-pad to 3 digits, prefix with E. If the backlog is empty or has no valid IDs, use E001.
 
 Return structured JSON with themed parameter groups.
 ", run_in_background=true)
@@ -445,7 +445,24 @@ For each non-duplicate finding, create a backlog entry:
 
 ### Update Backlog
 
-Edit `.claude/nerd.local.md` to append new entries to the `backlog:` array.
+Append new entries to the `backlog:` array using the **`.claude/nerd.local.md`
+write protocol** (see below). In short: use the Edit tool to append only — never
+rewrite the whole file with Write — so the sibling sections (`intern:`, `test_command`,
+`build_cache_*`) are preserved.
+
+> **`.claude/nerd.local.md` write protocol (integrity).** This file is the project's
+> critical mutable state — it co-hosts `intern:` config, `test_command`/`build_command`,
+> `build_cache_*`, and the `backlog:` array — and it is **gitignored** (not recoverable
+> from git). Two rules for every write:
+> 1. **Append via Edit, never full Write.** Adding a backlog entry or a config key is an
+>    Edit that inserts into the relevant section. A full-file `Write` drops whatever
+>    sibling sections you didn't reproduce — that is the failure this rule prevents.
+> 2. **Back up before any full rewrite.** If a write genuinely must replace the whole
+>    file, first `cp .claude/nerd.local.md .claude/nerd.local.md.bak`, write to
+>    `.claude/nerd.local.md.tmp`, then `mv` it into place (the crash-safe backup→tmp→
+>    rename discipline the DAG writer uses; markdown can't be JSON-validated, so the
+>    safety is the backup + atomic rename). Invariant: `intern:`, `test_command`,
+>    `build_cache_*`, and `backlog:` must all survive every write.
 
 Report: "Added {N} experiments to backlog across {T} themes. ({S} skipped as duplicates.)"
 

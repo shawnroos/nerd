@@ -172,6 +172,32 @@ If `$CURRENT_BRANCH` equals `$DEFAULT_BRANCH` (or is empty/detached):
 
 Store `$CURRENT_BRANCH` — the loop branch merges back here when done (Step 7).
 
+**Guard: working tree must be clean before the loop starts.** The loop's discard path
+(Step 5) runs `git reset --hard HEAD` on every failed iteration. If the tree carries
+uncommitted work when the loop begins, `git checkout -b` carries it onto the loop branch
+and the first failed iteration's reset destroys it — not recoverable. Refuse to start
+dirty (mirrors the guard in `skills/worktree-lifecycle/SKILL.md`). This guard is what
+makes the in-loop `git reset --hard HEAD` safe: with a clean start, the reset only ever
+discards the loop's own experimental edits.
+
+- In interactive mode: stop and tell the user the tree is dirty; offer to stash
+  (`git stash --include-untracked`, then re-run `/nerd-loop`; restore later with
+  `git stash pop`) or commit first. Do not proceed until clean.
+- In scheduled mode: abort with a clear message. Never auto-reset or auto-stash a dirty
+  tree in an unattended run.
+
+```bash
+if [ -n "$(git status --porcelain)" ]; then
+  echo "nerd-loop: refusing to start — working tree has uncommitted changes."
+  echo "  Commit or stash them first (e.g. git stash --include-untracked), then re-run."
+  exit 1
+fi
+```
+
+(Residual: this guards work present at loop *start*. A user editing the same working
+tree *concurrently* during an autonomous run is still exposed to the in-loop reset — the
+complete fix is git-worktree isolation, deferred follow-up. See the plan's KTD-1.)
+
 ```bash
 git checkout -b nerd-loop/{focus-slug}
 ```

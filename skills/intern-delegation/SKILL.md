@@ -21,7 +21,7 @@ if [ "$INTERN_PROVIDER" = "ollama" ] || [ -z "$INTERN_PROVIDER" ]; then
   # Ollama: use native /api/tags endpoint
   HEALTH=$(curl -s -m 5 "http://localhost:11434/api/tags" 2>/dev/null)
   # Verify model is loaded
-  echo "$HEALTH" | python3 -c "import json,sys; d=json.load(sys.stdin); models=[m['name'] for m in d.get('models',[])]; sys.exit(0 if any('${INTERN_MODEL}' in m for m in models) else 1)" 2>/dev/null
+  echo "$HEALTH" | python3 -c 'import json,sys; d=json.load(sys.stdin); models=[m["name"] for m in d.get("models",[])]; sys.exit(0 if any(sys.argv[1] in m for m in models) else 1)' "$INTERN_MODEL" 2>/dev/null
 else
   # Other providers: use OpenAI-compatible endpoint
   HEALTH=$(curl -s -m 5 "${INTERN_ENDPOINT}/v1/models" 2>/dev/null)
